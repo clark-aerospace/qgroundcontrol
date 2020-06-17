@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -129,6 +129,13 @@ QString APMParameterMetaData::mavTypeToString(MAV_TYPE vehicleTypeEnum)
     return vehicleName;
 }
 
+QString APMParameterMetaData::_groupFromParameterName(const QString& name)
+{
+    QString group = name.split('_').first();
+    return group.remove(QRegExp("[0-9]*$")); // remove any numbers from the end
+}
+
+
 void APMParameterMetaData::loadParameterFactMetaDataFile(const QString& metaDataFile)
 {
     if (_parameterMetaDataLoaded) {
@@ -232,8 +239,7 @@ void APMParameterMetaData::loadParameterFactMetaDataFile(const QString& metaData
                 if (name.contains(':')) {
                     name = name.split(':').last();
                 }
-                QString group = name.split('_').first();
-                group = group.remove(QRegExp("[0-9]*$")); // remove any numbers from the end
+                QString group = _groupFromParameterName(name);
 
                 QString category = xml.attributes().value("user").toString();
                 if (category.isEmpty()) {
@@ -254,7 +260,7 @@ void APMParameterMetaData::loadParameterFactMetaDataFile(const QString& metaData
                     qCDebug(APMParameterMetaDataLog) << "Duplicate parameter found:" << name;
                     rawMetaData = _vehicleTypeToParametersMap[currentCategory][name];
                 } else {
-                    rawMetaData = new APMFactMetaDataRaw();
+                    rawMetaData = new APMFactMetaDataRaw(this);
                     _vehicleTypeToParametersMap[currentCategory][name] = rawMetaData;
                     groupMembers[group] << name;
                 }
@@ -435,6 +441,8 @@ void APMParameterMetaData::addMetaDataToFact(Fact* fact, MAV_TYPE vehicleType)
 
     // we don't have data for this fact
     if (!rawMetaData) {
+        metaData->setCategory(QStringLiteral("Advanced"));
+        metaData->setGroup(_groupFromParameterName(fact->name()));
         fact->setMetaData(metaData);
         qCDebug(APMParameterMetaDataLog) << "No metaData for " << fact->name() << "using generic metadata";
         return;

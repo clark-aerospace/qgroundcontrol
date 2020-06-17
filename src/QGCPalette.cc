@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -77,12 +77,21 @@ void QGCPalette::_buildMap()
     DECLARE_QGC_COLOR(alertText,            "#000000", "#000000", "#000000", "#000000")
     DECLARE_QGC_COLOR(missionItemEditor,    "#585858", "#dbfef8", "#585858", "#585d83")
     DECLARE_QGC_COLOR(hoverColor,           "#585858", "#dbfef8", "#585858", "#585d83")
+    DECLARE_QGC_COLOR(statusFailedText,     "#9d9d9d", "#000000", "#707070", "#ffffff")
+    DECLARE_QGC_COLOR(statusPassedText,     "#9d9d9d", "#000000", "#707070", "#ffffff")
+    DECLARE_QGC_COLOR(statusPendingText,    "#9d9d9d", "#000000", "#707070", "#ffffff")
 
-    // Colors are not affecting by theming
-    DECLARE_QGC_COLOR(mapWidgetBorderLight, "#ffffff", "#ffffff", "#ffffff", "#ffffff")
-    DECLARE_QGC_COLOR(mapWidgetBorderDark,  "#000000", "#000000", "#000000", "#000000")
-    DECLARE_QGC_COLOR(brandingPurple,       "#4A2C6D", "#4A2C6D", "#4A2C6D", "#4A2C6D")
-    DECLARE_QGC_COLOR(brandingBlue,         "#48D6FF", "#6045c5", "#48D6FF", "#6045c5")
+    // Colors not affecting by theming
+    //                                          Disabled    Enabled
+    DECLARE_QGC_NONTHEMED_COLOR(brandingPurple, "#4A2C6D", "#4A2C6D")
+    DECLARE_QGC_NONTHEMED_COLOR(brandingBlue,   "#48D6FF", "#6045c5")
+
+    // Colors not affecting by theming or enable/disable
+    DECLARE_QGC_SINGLE_COLOR(mapWidgetBorderLight,          "#ffffff")
+    DECLARE_QGC_SINGLE_COLOR(mapWidgetBorderDark,           "#000000")
+    DECLARE_QGC_SINGLE_COLOR(mapMissionTrajectory,          "#be781c")
+    DECLARE_QGC_SINGLE_COLOR(surveyPolygonInterior,         "green")
+    DECLARE_QGC_SINGLE_COLOR(surveyPolygonTerrainCollision, "red")
 }
 
 void QGCPalette::setColorGroupEnabled(bool enabled)

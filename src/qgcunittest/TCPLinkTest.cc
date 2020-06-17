@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -125,7 +125,7 @@ void TCPLinkTest::_connectSucceed_test(void)
     const char* bytesWrittenSignal = SIGNAL(bytesWritten(qint64));
     MultiSignalSpy bytesWrittenSpy;
     QCOMPARE(bytesWrittenSpy.init(_link->getSocket(), &bytesWrittenSignal, 1), true);
-    _link->writeBytesSafe(bytesOut.data(), bytesOut.size());
+    _link->writeBytesThreadSafe(bytesOut.data(), bytesOut.size());
     _multiSpy->clearAllSignals();
     
     // We emit this signal such that it will be queued and run on the TCPLink thread. This in turn

@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -179,7 +179,7 @@ void SensorsComponentController::_stopCalibration(SensorsComponentController::St
         default:
             // Assume failed
             _hideAllCalAreas();
-            qgcApp()->showMessage(tr("Calibration failed. Calibration log will be displayed."));
+            qgcApp()->showAppMessage(tr("Calibration failed. Calibration log will be displayed."));
             break;
     }
     

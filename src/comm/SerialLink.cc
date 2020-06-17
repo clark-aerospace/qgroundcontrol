@@ -21,7 +21,6 @@
 
 #include "SerialLink.h"
 #include "QGC.h"
-#include "MG.h"
 #include "QGCLoggingCategory.h"
 #include "QGCApplication.h"
 #include "QGCSerialPortInfo.h"
@@ -84,6 +83,7 @@ bool SerialLink::_isBootloader()
 void SerialLink::_writeBytes(const QByteArray data)
 {
     if(_port && _port->isOpen()) {
+        emit bytesSent(this, data);
         _logOutputDataRate(data.size(), QDateTime::currentMSecsSinceEpoch());
         _port->write(data);
     } else {
@@ -152,7 +152,7 @@ bool SerialLink::_connect(void)
 bool SerialLink::_hardwareConnect(QSerialPort::SerialPortError& error, QString& errorString)
 {
     if (_port) {
-        qCDebug(SerialLinkLog) << "SerialLink:" << QString::number((long)this, 16) << "closing port";
+        qCDebug(SerialLinkLog) << "SerialLink:" << QString::number((qulonglong)this, 16) << "closing port";
         _port->close();
 
         // Wait 50 ms while continuing to run the event queue

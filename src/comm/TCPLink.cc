@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -57,7 +57,7 @@ void TCPLink::_writeDebugBytes(const QByteArray data)
     for (int i=0, size = data.size(); i<size; i++)
     {
         unsigned char v = data[i];
-        bytes.append(QString().sprintf("%02x ", v));
+        bytes.append(QString::asprintf("%02x ", v));
         if (data[i] > 31 && data[i] < 127)
         {
             ascii.append(data[i]);
@@ -81,6 +81,7 @@ void TCPLink::_writeBytes(const QByteArray data)
 
     if (_socket) {
         _socket->write(data);
+        emit bytesSent(this, data);
         _logOutputDataRate(data.size(), QDateTime::currentMSecsSinceEpoch());
     }
 }
@@ -149,12 +150,21 @@ bool TCPLink::_hardwareConnect()
     Q_ASSERT(_socket == nullptr);
     _socket = new QTcpSocket();
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
     QSignalSpy errorSpy(_socket, static_cast<void (QTcpSocket::*)(QAbstractSocket::SocketError)>(&QTcpSocket::error));
+#else
+    QSignalSpy errorSpy(_socket, &QAbstractSocket::errorOccurred);
+#endif
+
     _socket->connectToHost(_tcpConfig->address(), _tcpConfig->port());
     QObject::connect(_socket, &QTcpSocket::readyRead, this, &TCPLink::readBytes);
 
+#if QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
     QObject::connect(_socket,static_cast<void (QTcpSocket::*)(QAbstractSocket::SocketError)>(&QTcpSocket::error),
                      this, &TCPLink::_socketError);
+#else
+    QObject::connect(_socket, &QAbstractSocket::errorOccurred, this, &TCPLink::_socketError);
+#endif
 
     // Give the socket a second to connect to the other side otherwise error out
     if (!_socket->waitForConnected(1000))
@@ -319,7 +329,7 @@ void TCPConfiguration::loadSettings(QSettings& settings, const QString& root)
     settings.beginGroup(root);
     _port = (quint16)settings.value("port", QGC_TCP_PORT).toUInt();
     QString address = settings.value("host", _address.toString()).toString();
-    _address = address;
+    _address = QHostAddress(address);
     settings.endGroup();
 }
 

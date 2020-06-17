@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
+ * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
  *
  * QGroundControl is licensed according to the terms in the file
  * COPYING.md in the root of the source code directory.
@@ -69,7 +69,7 @@ void MissionManager::writeArduPilotGuidedMissionItem(const QGeoCoordinate& gotoC
                                          &messageOut,
                                          &missionItem);
 
-    _vehicle->sendMessageOnLink(_dedicatedLink, messageOut);
+    _vehicle->sendMessageOnLinkThreadSafe(_dedicatedLink, messageOut);
     _startAckTimeout(AckGuidedItem);
     emit inProgressChanged(true);
 }
@@ -88,7 +88,7 @@ void MissionManager::generateResumeMission(int resumeIndex)
     for (int i=0; i<_missionItems.count(); i++) {
         MissionItem* item = _missionItems[i];
         if (item->command() == MAV_CMD_DO_JUMP) {
-            qgcApp()->showMessage(tr("Unable to generate resume mission due to MAV_CMD_DO_JUMP command."));
+            qgcApp()->showAppMessage(tr("Unable to generate resume mission due to MAV_CMD_DO_JUMP command."));
             return;
         }
     }
