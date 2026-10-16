@@ -1,21 +1,10 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtPositioning
 
-import QtQuick          2.3
-import QtQuick.Controls 1.2
-import QtQuick.Layouts  1.2
-import QtPositioning    5.3
-
-import QGroundControl               1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.Palette       1.0
+import QGroundControl
+import QGroundControl.Controls
 
 DropButton {
     id:                 dropButton
@@ -221,11 +210,11 @@ DropButton {
             QGCButton {
                 text:               qsTr("Vehicle")
                 Layout.fillWidth:   true
-                enabled:            activeVehicle && activeVehicle.latitude != 0 && activeVehicle.longitude != 0 && !followVehicleCheckBox.checked
+                enabled:            globals.activeVehicle && globals.activeVehicle.latitude != 0 && globals.activeVehicle.longitude != 0 && !followVehicleCheckBox.checked
 
                 onClicked: {
                     dropButton.hideDropDown()
-                    map.center = activeVehicle.coordinate
+                    map.center = globals.activeVehicle.coordinate
                 }
             }
 

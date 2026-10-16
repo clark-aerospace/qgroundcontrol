@@ -1,33 +1,24 @@
+# ============================================================================
+# Firmware Plugin Module
+# Provides autopilot-specific firmware handling and communication
+# ============================================================================
+
+target_sources(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        FirmwarePlugin.cc
+        FirmwarePlugin.h
+        FirmwarePluginFactory.cc
+        FirmwarePluginFactory.h
+        FirmwarePluginManager.cc
+        FirmwarePluginManager.h
+        ParameterMetaData.cc
+        ParameterMetaData.h
+)
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# ----------------------------------------------------------------------------
+# Firmware-Specific Plugins
+# ----------------------------------------------------------------------------
 add_subdirectory(APM)
-
-add_library(FirmwarePlugin
-	CameraMetaData.cc
-	FirmwarePlugin.cc
-	FirmwarePluginManager.cc
-
-	APM/APMFirmwarePlugin.cc
-	APM/APMFirmwarePluginFactory.cc
-	APM/APMParameterMetaData.cc
-	APM/ArduCopterFirmwarePlugin.cc
-	APM/ArduPlaneFirmwarePlugin.cc
-	APM/ArduRoverFirmwarePlugin.cc
-	APM/ArduSubFirmwarePlugin.cc
-	APM/APMResources.qrc
-
-	PX4/PX4FirmwarePlugin.cc
-	PX4/PX4FirmwarePluginFactory.cc
-	PX4/PX4ParameterMetaData.cc
-	PX4/PX4Resources.qrc
-)
-
-target_link_libraries(FirmwarePlugin
-	PRIVATE
-		qgc
-)
-
-target_include_directories(FirmwarePlugin
-	INTERFACE
-		${CMAKE_CURRENT_SOURCE_DIR}
-                APM
-	)
-
+add_subdirectory(PX4)

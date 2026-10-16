@@ -1,32 +1,12 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QObject>
+#include <QtCore/QMap>
+class AutoPilotPlugin;
 
-#ifndef PX4AIRFRAMELOADER_H
-#define PX4AIRFRAMELOADER_H
+class FactMetaData;
 
-#include <QObject>
-#include <QMap>
-#include <QXmlStreamReader>
-#include <QLoggingCategory>
-
-#include "ParameterManager.h"
-#include "FactSystem.h"
-#include "UASInterface.h"
-#include "AutoPilotPlugin.h"
-
-/// @file PX4AirframeLoader.h
-///     @author Lorenz Meier <lm@qgroundcontrol.org>
-
-Q_DECLARE_LOGGING_CATEGORY(PX4AirframeLoaderLog)
-
-/// Collection of Parameter Facts for PX4 AutoPilot
+/// \brief Collection of Parameter Facts for PX4 AutoPilot
 
 class PX4AirframeLoader : QObject
 {
@@ -34,7 +14,7 @@ class PX4AirframeLoader : QObject
 
 public:
     /// @param uas Uas which this set of facts is associated with
-    PX4AirframeLoader(AutoPilotPlugin* autpilot,UASInterface* uas, QObject* parent = nullptr);
+    PX4AirframeLoader(AutoPilotPlugin* autpilot, QObject* parent = nullptr);
 
     static void loadAirframeMetaData(void);
 
@@ -54,5 +34,3 @@ private:
     static bool _airframeMetaDataLoaded;   ///< true: parameter meta data already loaded
     static QMap<QString, FactMetaData*> _mapParameterName2FactMetaData; ///< Maps from a parameter name to FactMetaData
 };
-
-#endif // PX4AIRFRAMELOADER_H

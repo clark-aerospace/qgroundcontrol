@@ -1,100 +1,131 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
 #include "GPSManager.h"
-#include "QGCLoggingCategory.h"
-#include "QGCApplication.h"
-#include "SettingsManager.h"
-#include "RTKSettings.h"
 
-GPSManager::GPSManager(QGCApplication* app, QGCToolbox* toolbox)
-    : QGCTool(app, toolbox)
+#include <QtCore/QApplicationStatic>
+#include <QtCore/QPointer>
+
+#include "GPSCorrectionManager.h"
+#include "GPSReceiver.h"
+#include "GPSReceiverFactGroup.h"
+#include "GPSSettingsBindings.h"
+#include "LinkManager.h"
+#include "NTRIPGgaReporter.h"
+#include "NTRIPManager.h"
+#include "NTRIPVehicleGgaSource.h"
+#include "PositionManager.h"
+#include "QGCCorePlugin.h"
+#include "QGCLoggingCategory.h"
+#include "QGCNetworkAvailabilityMonitor.h"
+#include "RTKSettings.h"
+#include "RuntimeScheduler.h"
+#include "SettingsManager.h"
+#ifndef QGC_NO_SERIAL_LINK
+#include "SerialPortManager.h"
+#endif
+
+QGC_LOGGING_CATEGORY(GPSManagerLog, "GPS.GPSManager")
+
+Q_APPLICATION_STATIC(GPSManager, _gpsManager);
+
+namespace {
+
+GPSReceiver::Dependencies receiverDependencies(GPSCorrectionManager* corrections, PositionManager* positions)
 {
-    qRegisterMetaType<GPSPositionMessage>();
-    qRegisterMetaType<GPSSatelliteMessage>();
+    GPSReceiver::Dependencies dependencies{.corrections = corrections, .positions = positions};
+#ifndef QGC_NO_SERIAL_LINK
+    dependencies.serialPorts = SerialPortManager::instance();
+#endif
+    return dependencies;
+}
+
+}  // namespace
+
+GPSManager::GPSManager(QObject* parent, RuntimeScheduler* scheduler)
+    : QObject(parent)
+    , _scheduler(RuntimeScheduler::orDefault(scheduler, nullptr))
+    , _corrections(new GPSCorrectionManager(this, _scheduler))
+    , _positionManager(new PositionManager(this, _scheduler))
+    , _receiver(new GPSReceiver(this, _scheduler, receiverDependencies(_corrections, _positionManager)))
+    , _ntripManager(new NTRIPManager(this, _scheduler,
+                                     {.corrections = _corrections, .network = new QGCNetworkAvailabilityMonitor(this)}))
+    , _vehicleGga(new NTRIPVehicleGgaSource(_scheduler, this))
+{
+    qCDebug(GPSManagerLog) << this;
+    _positionManager->setPlatformSourceFactory(
+        [](QObject* sourceParent) { return QGCCorePlugin::instance()->createPositionSource(sourceParent); });
+    if (!scheduler) {
+        // The last child, so the services it runs are destroyed before it.
+        _scheduler->setParent(this);
+    }
 }
 
 GPSManager::~GPSManager()
 {
-    disconnectGPS();
+    shutdown();
+    qCDebug(GPSManagerLog) << this;
 }
 
-void GPSManager::connectGPS(const QString& device, const QString& gps_type)
+GPSManager* GPSManager::instance()
 {
-    RTKSettings* rtkSettings = qgcApp()->toolbox()->settingsManager()->rtkSettings();
+    return _gpsManager();
+}
 
-    GPSProvider::GPSType type;
-    if (gps_type.contains("trimble",  Qt::CaseInsensitive)) {
-        type = GPSProvider::GPSType::trimble;
-        qCDebug(RTKGPSLog) << "Connecting Trimble device";
-    } else if (gps_type.contains("septentrio",  Qt::CaseInsensitive)) {
-        type = GPSProvider::GPSType::septentrio;
-        qCDebug(RTKGPSLog) << "Connecting Septentrio device";
-    } else {
-        type = GPSProvider::GPSType::u_blox;
-        qCDebug(RTKGPSLog) << "Connecting U-blox device";
+bool GPSManager::saveCurrentBasePosition()
+{
+    // A copy: a settings observer may reconfigure the receiver, which rewrites the receiver Facts.
+    const std::optional<GPSBaseStationConfig::Fixed> base = _receiver->facts()->currentBasePosition();
+    if (!base) {
+        return false;
     }
-
-    disconnectGPS();
-    _requestGpsStop = false;
-    _gpsProvider = new GPSProvider(device,
-                                   type,
-                                   true,    /* enableSatInfo */
-                                   rtkSettings->surveyInAccuracyLimit()->rawValue().toDouble(),
-                                   rtkSettings->surveyInMinObservationDuration()->rawValue().toInt(),
-                                   rtkSettings->useFixedBasePosition()->rawValue().toBool(),
-                                   rtkSettings->fixedBasePositionLatitude()->rawValue().toDouble(),
-                                   rtkSettings->fixedBasePositionLongitude()->rawValue().toDouble(),
-                                   rtkSettings->fixedBasePositionAltitude()->rawValue().toFloat(),
-                                   rtkSettings->fixedBasePositionAccuracy()->rawValue().toFloat(),
-                                   _requestGpsStop);
-    _gpsProvider->start();
-
-    //create RTCM device
-    _rtcmMavlink = new RTCMMavlink(*_toolbox);
-
-    connect(_gpsProvider, &GPSProvider::RTCMDataUpdate, _rtcmMavlink, &RTCMMavlink::RTCMDataUpdate);
-
-    //test: connect to position update
-    connect(_gpsProvider, &GPSProvider::positionUpdate,         this, &GPSManager::GPSPositionUpdate);
-    connect(_gpsProvider, &GPSProvider::satelliteInfoUpdate,    this, &GPSManager::GPSSatelliteUpdate);
-    connect(_gpsProvider, &GPSProvider::finished,               this, &GPSManager::onDisconnect);
-    connect(_gpsProvider, &GPSProvider::surveyInStatus,         this, &GPSManager::surveyInStatus);
-
-    emit onConnect();
+    _receiver->facts()->_setCurrentBasePositionSaved(true);
+    RTKSettings* settings = SettingsManager::instance()->rtkSettings();
+    settings->fixedBasePositionLatitude()->setRawValue(base->position.latitudeDegrees);
+    settings->fixedBasePositionLongitude()->setRawValue(base->position.longitudeDegrees);
+    settings->fixedBasePositionAltitude()->setRawValue(base->position.altitudeMeters);
+    settings->fixedBasePositionAccuracy()->setRawValue(base->accuracyMeters);
+    return true;
 }
 
-void GPSManager::disconnectGPS(void)
+void GPSManager::init()
 {
-    if (_gpsProvider) {
-        _requestGpsStop = true;
-        //Note that we need a relatively high timeout to be sure the GPS thread finished.
-        if (!_gpsProvider->wait(2000)) {
-            qWarning() << "Failed to wait for GPS thread exit. Consider increasing the timeout";
-        }
-        delete(_gpsProvider);
+    if (_initialized || _shutdown) {
+        return;
     }
-    if (_rtcmMavlink) {
-        delete(_rtcmMavlink);
+    _initialized = true;
+    GPSSettingsBindings::bindPosition(SettingsManager::instance()->rtkSettings(), _positionManager);
+    _positionManager->init();
+    _initGgaSources();
+    GPSSettingsBindings::bindReceiver(SettingsManager::instance()->rtkSettings(), _receiver);
+    GPSSettingsBindings::bindCorrections(SettingsManager::instance()->gpsCorrectionSettings(), _corrections);
+    GPSSettingsBindings::bindNtrip(SettingsManager::instance()->ntripSettings(), _ntripManager);
+    _ntripManager->init();
+    _receiver->startConnectionPolling([] { return LinkManager::instance()->connectionsSuspended(); });
+}
+
+void GPSManager::shutdown()
+{
+    if (_shutdown) {
+        return;
     }
-    _gpsProvider = nullptr;
-    _rtcmMavlink = nullptr;
+    _shutdown = true;
+    qCDebug(GPSManagerLog) << "Shutting down GPS sources and correction outputs";
+    _receiver->shutdown();
+    _ntripManager->shutdown();
+    _corrections->shutdown();
+    _positionManager->shutdown();
 }
 
-
-void GPSManager::GPSPositionUpdate(GPSPositionMessage msg)
+void GPSManager::_initGgaSources()
 {
-    qCDebug(RTKGPSLog) << QString("GPS: got position update: alt=%1, long=%2, lat=%3").arg(msg.position_data.alt).arg(msg.position_data.lon).arg(msg.position_data.lat);
-}
-void GPSManager::GPSSatelliteUpdate(GPSSatelliteMessage msg)
-{
-    qCDebug(RTKGPSLog) << QString("GPS: got satellite info update, %1 satellites").arg((int)msg.satellite_data.count);
-    emit satelliteUpdate(msg.satellite_data.count);
+    using Source = NTRIPGgaReporter::PositionSource;
+    using Observation = std::optional<GPSObservation>;
+    _vehicleGga->attach(_ntripManager);
+    _ntripManager->setGgaPositionProvider(
+        Source::RTKReceiver, [receiver = QPointer<GPSReceiver>(_receiver)]() -> Observation {
+            return receiver ? receiver->acceptedPositionObservation(GPSObservation::PositionUse::Gga) : std::nullopt;
+        });
+    _ntripManager->setGgaPositionProvider(
+        Source::GCSPosition, [positionManager = QPointer<PositionManager>(_positionManager)]() -> Observation {
+            return positionManager ? positionManager->acceptedObservation(GPSObservation::PositionUse::Gga)
+                                   : std::nullopt;
+        });
 }

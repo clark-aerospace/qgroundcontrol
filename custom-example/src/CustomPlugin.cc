@@ -1,436 +1,331 @@
-/****************************************************************************
- *
- * (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- *   @brief Custom QGCCorePlugin Implementation
- *   @author Gus Grubba <gus@auterion.com>
- */
-
-#include <QtQml>
-#include <QQmlEngine>
-#include <QDateTime>
-#include "QGCSettings.h"
-#include "MAVLinkLogManager.h"
-
 #include "CustomPlugin.h"
-#include "CustomQuickInterface.h"
-#include "CustomVideoManager.h"
-
-#include "MultiVehicleManager.h"
-#include "QGCApplication.h"
-#include "SettingsManager.h"
-#include "AppMessages.h"
-#include "QmlComponentInfo.h"
+#include "CustomSettings.h"
+#include "PerimeterScanComplexItem.h"
+#include "PerimeterScanPlanCreator.h"
+#include "QGCLoggingCategory.h"
 #include "QGCPalette.h"
+#include "QGCMAVLink.h"
+#include "AppSettings.h"
+#include "SettingsManager.h"
 
-QGC_LOGGING_CATEGORY(CustomLog, "CustomLog")
+#include <QtCore/QApplicationStatic>
+#include <QtQml/QQmlApplicationEngine>
+#include <QtQml/QQmlFile>
 
-CustomVideoReceiver::CustomVideoReceiver(QObject* parent)
-    : VideoReceiver(parent)
+QGC_LOGGING_CATEGORY(CustomLog, "Custom.CustomPlugin")
+
+Q_APPLICATION_STATIC(CustomPlugin, _customPluginInstance);
+
+CustomFlyViewOptions::CustomFlyViewOptions(CustomOptions* options, QObject* parent)
+    : QGCFlyViewOptions(options, parent)
 {
-#if defined(QGC_GST_STREAMING)
-    //-- Shorter RTSP test interval
-    _restart_time_ms = 1000;
-#endif
+    qCDebug(CustomLog) << this;
 }
 
-CustomVideoReceiver::~CustomVideoReceiver()
-{
-}
-
-//-----------------------------------------------------------------------------
-static QObject*
-customQuickInterfaceSingletonFactory(QQmlEngine*, QJSEngine*)
-{
-    qCDebug(CustomLog) << "Creating CustomQuickInterface instance";
-    CustomQuickInterface* pIFace = new CustomQuickInterface();
-    auto* pPlug = qobject_cast<CustomPlugin*>(qgcApp()->toolbox()->corePlugin());
-    if(pPlug) {
-        pIFace->init();
-    } else {
-        qCritical() << "Error obtaining instance of CustomPlugin";
-    }
-    return pIFace;
-}
-
-//-----------------------------------------------------------------------------
-CustomOptions::CustomOptions(CustomPlugin*, QObject* parent)
+CustomOptions::CustomOptions(CustomPlugin *plugin, QObject *parent)
     : QGCOptions(parent)
+    , _plugin(plugin)
+    , _flyViewOptions(new CustomFlyViewOptions(this, this))
 {
+    Q_CHECK_PTR(_plugin);
 }
 
-//-----------------------------------------------------------------------------
-bool
-CustomOptions::showFirmwareUpgrade() const
-{
-    return qgcApp()->toolbox()->corePlugin()->showAdvancedUI();
-}
+/*===========================================================================*/
 
-QColor
-CustomOptions::toolbarBackgroundLight() const
+CustomPlugin::CustomPlugin(QObject *parent)
+    : QGCCorePlugin(parent)
+    , _options(new CustomOptions(this, this))
 {
-    return CustomPlugin::_windowShadeEnabledLightColor;
-}
+    qCDebug(CustomLog) << this;
 
-QColor
-CustomOptions::toolbarBackgroundDark() const
-{
-    return CustomPlugin::_windowShadeEnabledDarkColor;
-}
-
-//-----------------------------------------------------------------------------
-CustomPlugin::CustomPlugin(QGCApplication *app, QGCToolbox* toolbox)
-    : QGCCorePlugin(app, toolbox)
-{
-    _pOptions = new CustomOptions(this, this);
     _showAdvancedUI = false;
+    (void) connect(this, &QGCCorePlugin::showAdvancedUIChanged, this, &CustomPlugin::_advancedChanged);
 }
 
-//-----------------------------------------------------------------------------
-CustomPlugin::~CustomPlugin()
+QGCCorePlugin *CustomPlugin::instance()
 {
+    return _customPluginInstance();
 }
 
-//-----------------------------------------------------------------------------
-void
-CustomPlugin::setToolbox(QGCToolbox* toolbox)
+void CustomPlugin::_advancedChanged(bool changed)
 {
-    QGCCorePlugin::setToolbox(toolbox);
-    qmlRegisterSingletonType<CustomQuickInterface>("CustomQuickInterface", 1, 0, "CustomQuickInterface", customQuickInterfaceSingletonFactory);
-    //-- Disable automatic logging
-    toolbox->mavlinkLogManager()->setEnableAutoStart(false);
-    toolbox->mavlinkLogManager()->setEnableAutoUpload(false);
-    connect(qgcApp()->toolbox()->corePlugin(), &QGCCorePlugin::showAdvancedUIChanged, this, &CustomPlugin::_advancedChanged);
+    // Firmware Upgrade page is only show in Advanced mode
+    emit _options->showFirmwareUpgradeChanged(changed);
 }
 
-//-----------------------------------------------------------------------------
-void
-CustomPlugin::_advancedChanged(bool changed)
+void CustomPlugin::registerCustomSettings(SettingsManager *settingsManager)
 {
-    //-- We are now in "Advanced Mode" (or not)
-    emit _pOptions->showFirmwareUpgradeChanged(changed);
+    settingsManager->registerCustomSettingsGroup(QStringLiteral("customSettings"), new CustomSettings());
 }
 
-//-----------------------------------------------------------------------------
-void
-CustomPlugin::addSettingsEntry(const QString& title,
-                               const char* qmlFile,
-                               const char* iconFile/*= nullptr*/)
+void CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaData& metaData, bool &userVisible)
 {
-    Q_CHECK_PTR(qmlFile);
-    // 'this' instance will take ownership on the QmlComponentInfo instance
-    _customSettingsList.append(QVariant::fromValue(
-        new QmlComponentInfo(title,
-                QUrl::fromUserInput(qmlFile),
-                iconFile == nullptr ? QUrl() : QUrl::fromUserInput(iconFile),
-                this)));
-}
+    QGCCorePlugin::adjustSettingMetaData(settingsGroup, metaData, userVisible);
 
-//-----------------------------------------------------------------------------
-QVariantList&
-CustomPlugin::settingsPages()
-{
-    if(_customSettingsList.isEmpty()) {
-        addSettingsEntry(tr("General"),     "qrc:/qml/GeneralSettings.qml", "qrc:/res/gear-white.svg");
-        addSettingsEntry(tr("Comm Links"),  "qrc:/qml/LinkSettings.qml",    "qrc:/res/waves.svg");
-        addSettingsEntry(tr("Offline Maps"),"qrc:/qml/OfflineMap.qml",      "qrc:/res/waves.svg");
-#if defined(QGC_GST_MICROHARD_ENABLED)
-        addSettingsEntry(tr("Microhard"),   "qrc:/qml/MicrohardSettings.qml");
-#endif
-#if defined(QGC_GST_TAISYNC_ENABLED)
-        addSettingsEntry(tr("Taisync"),     "qrc:/qml/TaisyncSettings.qml");
-#endif
-#if defined(QGC_AIRMAP_ENABLED)
-        addSettingsEntry(tr("AirMap"),      "qrc:/qml/AirmapSettings.qml");
-#endif
-        addSettingsEntry(tr("MAVLink"),     "qrc:/qml/MavlinkSettings.qml", "    qrc:/res/waves.svg");
-        addSettingsEntry(tr("Console"),     "qrc:/qml/QGroundControl/Controls/AppMessages.qml");
-#if defined(QGC_ENABLE_QZXING)
-        addSettingsEntry(tr("Barcode Test"),"qrc:/custom/BarcodeReader.qml");
-#endif
-#if defined(QT_DEBUG)
-        //-- These are always present on Debug builds
-        addSettingsEntry(tr("Mock Link"),   "qrc:/qml/MockLink.qml");
-        addSettingsEntry(tr("Debug"),       "qrc:/qml/DebugWindow.qml");
-        addSettingsEntry(tr("Palette Test"),"qrc:/qml/QmlTest.qml");
-#endif
-    }
-    return _customSettingsList;
-}
-
-//-----------------------------------------------------------------------------
-QGCOptions*
-CustomPlugin::options()
-{
-    return _pOptions;
-}
-
-//-----------------------------------------------------------------------------
-QString
-CustomPlugin::brandImageIndoor(void) const
-{
-    return QStringLiteral("/custom/img/void.png");
-}
-
-//-----------------------------------------------------------------------------
-QString
-CustomPlugin::brandImageOutdoor(void) const
-{
-    return QStringLiteral("/custom/img/void.png");
-}
-
-//-----------------------------------------------------------------------------
-bool
-CustomPlugin::overrideSettingsGroupVisibility(QString name)
-{
-    if (name == BrandImageSettings::name) {
-        return false;
-    }
-    return true;
-}
-
-//-----------------------------------------------------------------------------
-VideoManager*
-CustomPlugin::createVideoManager(QGCApplication *app, QGCToolbox *toolbox)
-{
-    return new CustomVideoManager(app, toolbox);
-}
-
-//-----------------------------------------------------------------------------
-VideoReceiver*
-CustomPlugin::createVideoReceiver(QObject* parent)
-{
-    return new CustomVideoReceiver(parent);
-}
-
-//-----------------------------------------------------------------------------
-QQmlApplicationEngine*
-CustomPlugin::createRootWindow(QObject *parent)
-{
-    QQmlApplicationEngine* pEngine = new QQmlApplicationEngine(parent);
-    pEngine->addImportPath("qrc:/qml");
-    pEngine->addImportPath("qrc:/Custom/Widgets");
-    pEngine->addImportPath("qrc:/Custom/Camera");
-    pEngine->rootContext()->setContextProperty("joystickManager",   qgcApp()->toolbox()->joystickManager());
-    pEngine->rootContext()->setContextProperty("debugMessageModel", AppMessages::getModel());
-    pEngine->load(QUrl(QStringLiteral("qrc:/qml/MainRootWindow.qml")));
-    return pEngine;
-}
-
-//-----------------------------------------------------------------------------
-bool
-CustomPlugin::adjustSettingMetaData(const QString& settingsGroup, FactMetaData& metaData)
-{
-    bool parentResult = QGCCorePlugin::adjustSettingMetaData(settingsGroup, metaData);
     if (settingsGroup == AppSettings::settingsGroup) {
-        if (metaData.name() == AppSettings::appFontPointSizeName) {
-        #if defined(Q_OS_LINUX)
-            int defaultFontPointSize = 11;
-            metaData.setRawDefaultValue(defaultFontPointSize);
-        #endif
-        } else if (metaData.name() == AppSettings::indoorPaletteName) {
-            QVariant indoorPalette = 1;
-            metaData.setRawDefaultValue(indoorPalette);
-            parentResult = true;
+        // This tells QGC than when you are creating Plans while not connected to a vehicle
+        // the specific firmware/vehicle the plan is for.
+        if (metaData.name() == AppSettings::offlineEditingFirmwareClassName) {
+            metaData.setRawDefaultValue(QGCMAVLink::FirmwareClassPX4);
+            userVisible = false;
+            return;
+        } else if (metaData.name() == AppSettings::offlineEditingVehicleClassName) {
+            metaData.setRawDefaultValue(QGCMAVLink::VehicleClassMultiRotor);
+            userVisible = false;
+            return;
         }
     }
-    return parentResult;
 }
 
-const QColor     CustomPlugin::_windowShadeEnabledLightColor("#FFFFFF");
-const QColor     CustomPlugin::_windowShadeEnabledDarkColor("#212529");
-
-//-----------------------------------------------------------------------------
-void
-CustomPlugin::paletteOverride(QString colorName, QGCPalette::PaletteColorInfo_t& colorInfo)
+void CustomPlugin::paletteOverride(const QString &colorName, QGCPalette::PaletteColorInfo_t& colorInfo)
 {
     if (colorName == QStringLiteral("window")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#212529");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#f8f9fa");
-    }
-    else if (colorName == QStringLiteral("windowShade")) {
+    } else if (colorName == QStringLiteral("windowShade")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#343a40");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#343a40");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#f1f3f5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#d9d9d9");
-    }
-    else if (colorName == QStringLiteral("windowShadeDark")) {
+    } else if (colorName == QStringLiteral("windowShadeDark")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#1a1c1f");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#1a1c1f");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#e9ecef");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#bdbdbd");
-    }
-    else if (colorName == QStringLiteral("text")) {
+    } else if (colorName == QStringLiteral("text")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#777c89");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#9d9d9d");
-    }
-    else if (colorName == QStringLiteral("warningText")) {
+    } else if (colorName == QStringLiteral("warningText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#e03131");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#e03131");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#cc0808");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#cc0808");
-    }
-    else if (colorName == QStringLiteral("button")) {
+    } else if (colorName == QStringLiteral("button")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#495057");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#ffffff");
-    }
-    else if (colorName == QStringLiteral("buttonText")) {
+    } else if (colorName == QStringLiteral("buttonText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#777c89");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#9d9d9d");
-    }
-    else if (colorName == QStringLiteral("buttonHighlight")) {
+    } else if (colorName == QStringLiteral("buttonHighlight")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#e4e4e4");
-    }
-    else if (colorName == QStringLiteral("buttonHighlightText")) {
+    } else if (colorName == QStringLiteral("buttonHighlightText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#777c89");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#2c2c2c");
-    }
-    else if (colorName == QStringLiteral("primaryButton")) {
+    } else if (colorName == QStringLiteral("primaryButton")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#12b886");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("primaryButtonText")) {
+    } else if (colorName == QStringLiteral("primaryButtonText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#cad0d0");
-    }
-    else if (colorName == QStringLiteral("textField")) {
+    } else if (colorName == QStringLiteral("textField")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#212529");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#495057");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#f1f3f5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#ffffff");
-    }
-    else if (colorName == QStringLiteral("textFieldText")) {
+    } else if (colorName == QStringLiteral("textFieldText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#777c89");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#808080");
-    }
-    else if (colorName == QStringLiteral("mapButton")) {
+    } else if (colorName == QStringLiteral("mapButton")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#000000");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("mapButtonHighlight")) {
+    } else if (colorName == QStringLiteral("mapButtonHighlight")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#be781c");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("mapIndicator")) {
+    } else if (colorName == QStringLiteral("mapIndicator")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#9dda4f");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#be781c");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("mapIndicatorChild")) {
+    } else if (colorName == QStringLiteral("mapIndicatorChild")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#527942");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#585858");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#766043");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("colorGreen")) {
+    } else if (colorName == QStringLiteral("colorGreen")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#27bf89");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#0ca678");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#009431");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#009431");
-    }
-    else if (colorName == QStringLiteral("colorOrange")) {
+    } else if (colorName == QStringLiteral("colorOrange")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#f7b24a");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#f6921e");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#b95604");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#b95604");
-    }
-    else if (colorName == QStringLiteral("colorRed")) {
+    } else if (colorName == QStringLiteral("colorRed")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#e1544c");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#e03131");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#ed3939");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#ed3939");
-    }
-    else if (colorName == QStringLiteral("colorGrey")) {
+    } else if (colorName == QStringLiteral("colorGrey")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#8b90a0");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#8b90a0");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#808080");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#808080");
-    }
-    else if (colorName == QStringLiteral("colorBlue")) {
+    } else if (colorName == QStringLiteral("colorBlue")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#228be6");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#228be6");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#1a72ff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#1a72ff");
-    }
-    else if (colorName == QStringLiteral("alertBackground")) {
+    } else if (colorName == QStringLiteral("alertBackground")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#d4b106");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#d4b106");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#fffb8f");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#b45d48");
-    }
-    else if (colorName == QStringLiteral("alertBorder")) {
+    } else if (colorName == QStringLiteral("alertBorder")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#876800");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#876800");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#808080");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#808080");
-    }
-    else if (colorName == QStringLiteral("alertText")) {
+    } else if (colorName == QStringLiteral("alertText")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#000000");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#fff9ed");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#fff9ed");
-    }
-    else if (colorName == QStringLiteral("missionItemEditor")) {
+    } else if (colorName == QStringLiteral("missionItemEditor")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#212529");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#0b1420");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#585858");
-    }
-    else if (colorName == QStringLiteral("hoverColor")) {
+    } else if (colorName == QStringLiteral("hoverColor")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#07916d");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#33c494");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#aeebd0");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#464f5a");
-    }
-    else if (colorName == QStringLiteral("mapWidgetBorderLight")) {
+    } else if (colorName == QStringLiteral("mapWidgetBorderLight")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#ffffff");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#ffffff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#f1f3f5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#ffffff");
-    }
-    else if (colorName == QStringLiteral("mapWidgetBorderDark")) {
+    } else if (colorName == QStringLiteral("mapWidgetBorderDark")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#000000");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#000000");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#212529");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#000000");
-    }
-    else if (colorName == QStringLiteral("brandingPurple")) {
+    } else if (colorName == QStringLiteral("brandPrimary")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#4a2c6d");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#4a2c6d");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#4a2c6d");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#4a2c6d");
-    }
-    else if (colorName == QStringLiteral("brandingBlue")) {
+    } else if (colorName == QStringLiteral("brandAccent")) {
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor("#6045c5");
         colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor("#48d6ff");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor("#6045c5");
         colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor("#48d6ff");
     }
+}
+
+QQmlApplicationEngine* CustomPlugin::createQmlApplicationEngine(QObject* parent)
+{
+    _qmlEngine = QGCCorePlugin::createQmlApplicationEngine(parent);
+    _qmlEngine->addImportPath("qrc:/qml/Custom/Widgets");
+    _qmlEngine->addImportPath("qrc:/qml/Custom/Plan");
+    // TODO: Investigate _qmlEngine->setExtraSelectors({"custom"})
+
+    _urlInterceptor = new CustomOverrideInterceptor();
+    _qmlEngine->addUrlInterceptor(_urlInterceptor);
+
+    return _qmlEngine;
+}
+
+void CustomPlugin::destroyQmlApplicationEngine(QQmlApplicationEngine *qmlEngine)
+{
+    if (qmlEngine && (qmlEngine == _qmlEngine)) {
+        qmlEngine->removeUrlInterceptor(_urlInterceptor);
+        delete _urlInterceptor;
+        _urlInterceptor = nullptr;
+        _qmlEngine = nullptr;
+    }
+
+    QGCCorePlugin::destroyQmlApplicationEngine(qmlEngine);
+}
+
+/*===========================================================================*/
+
+CustomOverrideInterceptor::CustomOverrideInterceptor()
+    : QQmlAbstractUrlInterceptor()
+{
+
+}
+
+QUrl CustomOverrideInterceptor::intercept(const QUrl &url, QQmlAbstractUrlInterceptor::DataType type)
+{
+    switch (type) {
+    case QQmlAbstractUrlInterceptor::QmlFile:
+    case QQmlAbstractUrlInterceptor::UrlString:
+        if (url.scheme() == QStringLiteral("qrc")) {
+            const QString origPath = url.path();
+            const QString overrideRes = QStringLiteral(":/Custom%1").arg(origPath);
+            if (QFile::exists(overrideRes)) {
+                const QString relPath = overrideRes.mid(2);
+                QUrl result;
+                result.setScheme(QStringLiteral("qrc"));
+                result.setPath('/' + relPath);
+                return result;
+            }
+        }
+        break;
+    default:
+        break;
+    }
+
+    return url;
+}
+
+/*===========================================================================*/
+
+QVariantList CustomPlugin::complexMissionItemNames(Vehicle *vehicle)
+{
+    // Start with the standard set, then append our custom item.
+    QVariantList items = QGCCorePlugin::complexMissionItemNames(vehicle);
+
+    QVariantMap entry;
+    entry[QStringLiteral("canonicalName")]  = QString(PerimeterScanComplexItem::canonicalName);
+    entry[QStringLiteral("translatedName")] = PerimeterScanComplexItem::tr(PerimeterScanComplexItem::canonicalName);
+    items.append(entry);
+
+    return items;
+}
+
+ComplexMissionItem *CustomPlugin::createComplexMissionItem(const QString &complexItemType,
+                                                            PlanMasterController *masterController,
+                                                            bool flyView,
+                                                            const QString &kmlOrShpFile)
+{
+    if (complexItemType == PerimeterScanComplexItem::canonicalName
+            || complexItemType == PerimeterScanComplexItem::jsonComplexItemTypeValue) {
+        return new PerimeterScanComplexItem(masterController, flyView, kmlOrShpFile);
+    }
+    // Fall back to the built-in factory for all standard item types.
+    return QGCCorePlugin::createComplexMissionItem(complexItemType, masterController, flyView, kmlOrShpFile);
+}
+
+QList<PlanCreator *> CustomPlugin::planCreators(PlanMasterController *planMasterController)
+{
+    // Start with the standard creators, then add ours.
+    QList<PlanCreator *> creators = QGCCorePlugin::planCreators(planMasterController);
+    creators.append(new PerimeterScanPlanCreator(planMasterController));
+    return creators;
 }

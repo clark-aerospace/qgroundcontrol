@@ -1,195 +1,202 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-#include <QElapsedTimer>
-#include <cmath>
-
-#include "MultiVehicleManager.h"
-#include "FirmwarePlugin.h"
-#include "MAVLinkProtocol.h"
 #include "FollowMe.h"
-#include "Vehicle.h"
-#include "PositionManager.h"
-#include "SettingsManager.h"
+
+#include <QtPositioning/QGeoPositionInfo>
+
 #include "AppSettings.h"
+#include "FirmwarePlugin.h"
+#include "GPSManager.h"
+#include "MultiVehicleManager.h"
+#include "PositionManager.h"
+#include "QGCLoggingCategory.h"
+#include "QmlObjectListModel.h"
+#include "SettingsManager.h"
+#include "Vehicle.h"
 
-FollowMe::FollowMe(QGCApplication* app, QGCToolbox* toolbox)
-    : QGCTool(app, toolbox), estimatation_capabilities(0)
+QGC_LOGGING_CATEGORY(FollowMeLog, "API.FollowMe")
+
+Q_APPLICATION_STATIC(FollowMe, _followMeInstance);
+
+FollowMe::FollowMe(QObject *parent)
+    : QObject(parent)
+    , _gcsMotionReportTimer(new QTimer(this))
 {
-    memset(&_motionReport, 0, sizeof(motionReport_s));
-    runTime.start();
-    _gcsMotionReportTimer.setSingleShot(false);
+    // qCDebug(FollowMeLog) << Q_FUNC_INFO << this;
+
+    _gcsMotionReportTimer->setSingleShot(false);
+    // We set the update interval to a fixed amount of time.
+    // Even if the device can't update this quickly we'll pick up a new value on the next time around.
+    // We can't trust the value for update interval which comes from the actual device.
+    _gcsMotionReportTimer->setInterval(kMotionUpdateInterval);
 }
 
-void FollowMe::setToolbox(QGCToolbox* toolbox)
+FollowMe::~FollowMe()
 {
-    QGCTool::setToolbox(toolbox);
-    connect(&_gcsMotionReportTimer, &QTimer::timeout, this, &FollowMe::_sendGCSMotionReport);
-    connect(toolbox->settingsManager()->appSettings()->followTarget(), &Fact::rawValueChanged, this, &FollowMe::_settingsChanged);
-    _currentMode = _toolbox->settingsManager()->appSettings()->followTarget()->rawValue().toUInt();
-    if(_currentMode == MODE_ALWAYS) {
-        _enable();
+    // qCDebug(FollowMeLog) << Q_FUNC_INFO << this;
+}
+
+FollowMe *FollowMe::instance()
+{
+    return _followMeInstance();
+}
+
+void FollowMe::init()
+{
+    static bool once = false;
+    if (!once) {
+        (void) connect(_gcsMotionReportTimer, &QTimer::timeout, this, &FollowMe::_sendGCSMotionReport);
+        (void) connect(SettingsManager::instance()->appSettings()->followTarget(), &Fact::rawValueChanged, this, &FollowMe::_settingsChanged);
+
+        _settingsChanged(SettingsManager::instance()->appSettings()->followTarget()->rawValue());
+    }
+    once = true;
+}
+
+void FollowMe::_settingsChanged(QVariant value)
+{
+    _currentMode = static_cast<FollowMode>(value.toUInt());
+
+    switch (_currentMode) {
+    case MODE_NEVER:
+        (void) disconnect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleAdded, this, &FollowMe::_vehicleAdded);
+        (void) disconnect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleRemoved, this, &FollowMe::_vehicleRemoved);
+        _disableFollowSend();
+        break;
+    case MODE_ALWAYS:
+        (void) connect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleAdded, this, &FollowMe::_vehicleAdded);
+        (void) connect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleRemoved, this, &FollowMe::_vehicleRemoved);
+        _enableFollowSend();
+        break;
+    case MODE_FOLLOWME:
+        (void) connect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleAdded, this, &FollowMe::_vehicleAdded);
+        (void) connect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleRemoved, this, &FollowMe::_vehicleRemoved);
+        _enableIfVehicleInFollow();
+        break;
     }
 }
 
-void FollowMe::followMeHandleManager(const QString&)
+void FollowMe::_enableFollowSend()
 {
-    //-- If we are to change based on current flight mode
-    if(_currentMode == MODE_FOLLOWME) {
-        QmlObjectListModel & vehicles = *_toolbox->multiVehicleManager()->vehicles();
-        for (int i=0; i< vehicles.count(); i++) {
-            Vehicle* vehicle = qobject_cast<Vehicle*>(vehicles[i]);
-            if (vehicle->px4Firmware() && vehicle->flightMode().compare(FirmwarePlugin::px4FollowMeFlightMode, Qt::CaseInsensitive) == 0) {
-                _enable();
-                return;
-            }
-        }
-        _disable();
+    if (!_gcsMotionReportTimer->isActive()) {
+        _gcsMotionReportTimer->start();
     }
 }
 
-void FollowMe::_settingsChanged()
+void FollowMe::_disableFollowSend()
 {
-    uint32_t mode = _toolbox->settingsManager()->appSettings()->followTarget()->rawValue().toUInt();
-    if(_currentMode != mode) {
-        _currentMode = mode;
-        switch (mode) {
-        case MODE_NEVER:
-            if(_gcsMotionReportTimer.isActive()) {
-                _disable();
-            }
-            break;
-        case MODE_ALWAYS:
-            if(!_gcsMotionReportTimer.isActive()) {
-                _enable();
-            }
-            break;
-        case MODE_FOLLOWME:
-            if(!_gcsMotionReportTimer.isActive()) {
-                followMeHandleManager(QString());
-            }
-            break;
-        default:
-            break;
-        }
-    }
-}
-
-void FollowMe::_enable()
-{
-    connect(_toolbox->qgcPositionManager(),
-            &QGCPositionManager::positionInfoUpdated,
-            this,
-            &FollowMe::_setGPSLocation);
-    _gcsMotionReportTimer.setInterval(_toolbox->qgcPositionManager()->updateInterval());
-    _gcsMotionReportTimer.start();
-}
-
-void FollowMe::_disable()
-{
-    disconnect(_toolbox->qgcPositionManager(),
-               &QGCPositionManager::positionInfoUpdated,
-               this,
-               &FollowMe::_setGPSLocation);
-    _gcsMotionReportTimer.stop();
-}
-
-void FollowMe::_setGPSLocation(QGeoPositionInfo geoPositionInfo)
-{
-    if (!geoPositionInfo.isValid()) {
-        //-- Invalidate cached coordinates
-        memset(&_motionReport, 0, sizeof(motionReport_s));
-    } else {
-        // get the current location coordinates
-
-        QGeoCoordinate geoCoordinate = geoPositionInfo.coordinate();
-
-        _motionReport.lat_int = geoCoordinate.latitude()  * 1e7;
-        _motionReport.lon_int = geoCoordinate.longitude() * 1e7;
-        _motionReport.alt     = geoCoordinate.altitude();
-
-        estimatation_capabilities |= (1 << POS);
-
-        // get the current eph and epv
-
-        if(geoPositionInfo.hasAttribute(QGeoPositionInfo::HorizontalAccuracy) == true) {
-            _motionReport.pos_std_dev[0] = _motionReport.pos_std_dev[1] = geoPositionInfo.attribute(QGeoPositionInfo::HorizontalAccuracy);
-        }
-
-        if(geoPositionInfo.hasAttribute(QGeoPositionInfo::VerticalAccuracy) == true) {
-            _motionReport.pos_std_dev[2] = geoPositionInfo.attribute(QGeoPositionInfo::VerticalAccuracy);
-        }                
-
-        // calculate z velocity if it's available
-
-        if(geoPositionInfo.hasAttribute(QGeoPositionInfo::VerticalSpeed)) {
-            _motionReport.vz = geoPositionInfo.attribute(QGeoPositionInfo::VerticalSpeed);
-        }
-
-        // calculate x,y velocity if it's available
-
-        if((geoPositionInfo.hasAttribute(QGeoPositionInfo::Direction)   == true) &&
-           (geoPositionInfo.hasAttribute(QGeoPositionInfo::GroundSpeed) == true)) {
-
-            estimatation_capabilities |= (1 << VEL);
-
-            qreal direction = _degreesToRadian(geoPositionInfo.attribute(QGeoPositionInfo::Direction));
-            qreal velocity  = geoPositionInfo.attribute(QGeoPositionInfo::GroundSpeed);
-
-            _motionReport.vx = cos(direction)*velocity;
-            _motionReport.vy = sin(direction)*velocity;
-
-        } else {
-            _motionReport.vx = 0.0f;
-            _motionReport.vy = 0.0f;
-        }
+    if (_gcsMotionReportTimer->isActive()) {
+        _gcsMotionReportTimer->stop();
     }
 }
 
 void FollowMe::_sendGCSMotionReport()
 {
+    const auto observation =
+        GPSManager::instance()->positionManager()->acceptedObservation(GPSObservation::PositionUse::Motion);
+    if (!observation) {
+        return;
+    }
+    const auto& geoPositionInfo = observation->position;
+    const QGeoCoordinate gcsCoordinate = geoPositionInfo.coordinate();
 
-    //-- Do we have any real data?
-    if(_motionReport.lat_int == 0 && _motionReport.lon_int == 0 && _motionReport.alt == 0) {
+    // First check to see if any vehicles need follow me updates
+    bool needFollowMe = false;
+    if (_currentMode == MODE_ALWAYS) {
+        needFollowMe = true;
+    } else if (_currentMode == MODE_FOLLOWME) {
+        QmlObjectListModel* const vehicles = MultiVehicleManager::instance()->vehicles();
+        for (int i = 0; i < vehicles->count(); i++) {
+            const Vehicle* const vehicle = vehicles->value<const Vehicle*>(i);
+            if (vehicle && _isFollowFlightMode(vehicle, vehicle->flightMode())) {
+                needFollowMe = true;
+            }
+        }
+    }
+    if (!needFollowMe) {
         return;
     }
 
-    QmlObjectListModel & vehicles    = *_toolbox->multiVehicleManager()->vehicles();
-    MAVLinkProtocol* mavlinkProtocol = _toolbox->mavlinkProtocol();
-    mavlink_follow_target_t follow_target;
-    memset(&follow_target, 0, sizeof(follow_target));
+    GCSMotionReport motionReport{};
+    uint8_t estimationCapabilities = 0;
 
-    follow_target.timestamp = runTime.nsecsElapsed() * 1e-6;
-    follow_target.est_capabilities = estimatation_capabilities;
-    follow_target.position_cov[0] = _motionReport.pos_std_dev[0];
-    follow_target.position_cov[2] = _motionReport.pos_std_dev[2];
-    follow_target.alt = _motionReport.alt;
-    follow_target.lat = _motionReport.lat_int;
-    follow_target.lon = _motionReport.lon_int;
-    follow_target.vel[0] = _motionReport.vx;
-    follow_target.vel[1] = _motionReport.vy;
+    motionReport.lat_int = static_cast<int>(gcsCoordinate.latitude() * 1e7);
+    motionReport.lon_int = static_cast<int>(gcsCoordinate.longitude() * 1e7);
+    motionReport.altMetersAMSL = gcsCoordinate.altitude();
+    estimationCapabilities |= (1 << POS);
 
-    for (int i=0; i< vehicles.count(); i++) {
-        Vehicle* vehicle = qobject_cast<Vehicle*>(vehicles[i]);
-        if(_currentMode || vehicle->flightMode().compare(FirmwarePlugin::px4FollowMeFlightMode, Qt::CaseInsensitive) == 0) {
-            mavlink_message_t message;
-            mavlink_msg_follow_target_encode_chan(mavlinkProtocol->getSystemId(),
-                                                  mavlinkProtocol->getComponentId(),
-                                                  vehicle->priorityLink()->mavlinkChannel(),
-                                                  &message,
-                                                  &follow_target);
-            vehicle->sendMessageOnLink(vehicle->priorityLink(), message);
+    if (geoPositionInfo.hasAttribute(QGeoPositionInfo::Direction)) {
+        estimationCapabilities |= (1 << HEADING);
+        motionReport.headingDegrees = geoPositionInfo.attribute(QGeoPositionInfo::Direction);
+    }
+
+    if (geoPositionInfo.hasAttribute(QGeoPositionInfo::HorizontalAccuracy)) {
+        motionReport.pos_std_dev[0] = motionReport.pos_std_dev[1] = geoPositionInfo.attribute(QGeoPositionInfo::HorizontalAccuracy);
+    }
+
+    if (geoPositionInfo.hasAttribute(QGeoPositionInfo::VerticalAccuracy)) {
+        motionReport.pos_std_dev[2] = geoPositionInfo.attribute(QGeoPositionInfo::VerticalAccuracy);
+    }
+
+    if (geoPositionInfo.hasAttribute(QGeoPositionInfo::VerticalSpeed)) {
+        motionReport.vzMetersPerSec = geoPositionInfo.attribute(QGeoPositionInfo::VerticalSpeed);
+    }
+
+    if (geoPositionInfo.hasAttribute(QGeoPositionInfo::Direction) && geoPositionInfo.hasAttribute(QGeoPositionInfo::GroundSpeed)) {
+        estimationCapabilities |= (1 << VEL);
+
+        const qreal direction = qDegreesToRadians(geoPositionInfo.attribute(QGeoPositionInfo::Direction));
+        const qreal velocity = geoPositionInfo.attribute(QGeoPositionInfo::GroundSpeed);
+
+        motionReport.vxMetersPerSec = cos(direction) * velocity;
+        motionReport.vyMetersPerSec = sin(direction) * velocity;
+    } else {
+        motionReport.vxMetersPerSec = 0;
+        motionReport.vyMetersPerSec = 0;
+    }
+
+    QmlObjectListModel* const vehicles = MultiVehicleManager::instance()->vehicles();
+
+    for (int i = 0; i < vehicles->count(); i++) {
+        Vehicle* const vehicle = vehicles->value<Vehicle*>(i);
+        if (vehicle && ((_currentMode == MODE_ALWAYS) || (_isFollowFlightMode(vehicle, vehicle->flightMode())))) {
+            qCDebug(FollowMeLog) << "sendGCSMotionReport latInt:lonInt:altMetersAMSL" << motionReport.lat_int << motionReport.lon_int << motionReport.altMetersAMSL;
+            vehicle->firmwarePlugin()->sendGCSMotionReport(vehicle, motionReport, estimationCapabilities);
         }
     }
 }
 
-double FollowMe::_degreesToRadian(double deg)
+void FollowMe::_vehicleAdded(Vehicle *vehicle)
 {
-    return deg * M_PI / 180.0;
+    (void) connect(vehicle, &Vehicle::flightModeChanged, this, &FollowMe::_enableIfVehicleInFollow);
+    _enableIfVehicleInFollow();
+}
+
+void FollowMe::_vehicleRemoved(Vehicle *vehicle)
+{
+    (void) disconnect(vehicle, &Vehicle::flightModeChanged, this, &FollowMe::_enableIfVehicleInFollow);
+    _enableIfVehicleInFollow();
+}
+
+void FollowMe::_enableIfVehicleInFollow()
+{
+    if (_currentMode == MODE_ALWAYS) {
+        return;
+    }
+
+    // Any vehicle in follow mode will enable the system
+    QmlObjectListModel* const vehicles = MultiVehicleManager::instance()->vehicles();
+
+    for (int i = 0; i < vehicles->count(); i++) {
+        const Vehicle* const vehicle = vehicles->value<const Vehicle*>(i);
+        if (_isFollowFlightMode(vehicle, vehicle->flightMode())) {
+            _enableFollowSend();
+            return;
+        }
+    }
+
+    _disableFollowSend();
+}
+
+bool FollowMe::_isFollowFlightMode(const Vehicle *vehicle, const QString &flightMode)
+{
+    return (flightMode.compare(vehicle->followFlightMode()) == 0);
 }

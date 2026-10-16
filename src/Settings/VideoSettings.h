@@ -1,27 +1,20 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
-#ifndef VideoSettings_H
-#define VideoSettings_H
+#include <QtQmlIntegration/QtQmlIntegration>
 
 #include "SettingsGroup.h"
 
 class VideoSettings : public SettingsGroup
 {
     Q_OBJECT
-
+    QML_ELEMENT
+    QML_UNCREATABLE("")
 public:
     VideoSettings(QObject* parent = nullptr);
     DEFINE_SETTING_NAME_GROUP()
 
     DEFINE_SETTINGFACT(videoSource)
-    DEFINE_SETTINGFACT(udpPort)
+    DEFINE_SETTINGFACT(udpUrl)
     DEFINE_SETTINGFACT(tcpUrl)
     DEFINE_SETTINGFACT(rtspUrl)
     DEFINE_SETTINGFACT(aspectRatio)
@@ -34,6 +27,13 @@ public:
     DEFINE_SETTINGFACT(rtspTimeout)
     DEFINE_SETTINGFACT(streamEnabled)
     DEFINE_SETTINGFACT(disableWhenDisarmed)
+    DEFINE_SETTINGFACT(lowLatencyMode)
+    DEFINE_SETTINGFACT(rtpJitterLatencyMs)
+    DEFINE_SETTINGFACT(rtspAutoReconnect)
+    DEFINE_SETTINGFACT(forceVideoDecoder)
+    DEFINE_SETTINGFACT(forceCpuVideoPath)
+    DEFINE_SETTINGFACT(videoConversionElement)
+    DEFINE_SETTINGFACT(disablePixelAspectRatio)
 
     Q_PROPERTY(bool     streamConfigured        READ streamConfigured       NOTIFY streamConfiguredChanged)
     Q_PROPERTY(QString  rtspVideoSource         READ rtspVideoSource        CONSTANT)
@@ -41,6 +41,7 @@ public:
     Q_PROPERTY(QString  udp265VideoSource       READ udp265VideoSource      CONSTANT)
     Q_PROPERTY(QString  tcpVideoSource          READ tcpVideoSource         CONSTANT)
     Q_PROPERTY(QString  mpegtsVideoSource       READ mpegtsVideoSource      CONSTANT)
+    Q_PROPERTY(QString  disabledVideoSource     READ disabledVideoSource    CONSTANT)
 
     bool     streamConfigured       ();
     QString  rtspVideoSource        () { return videoSourceRTSP; }
@@ -48,27 +49,37 @@ public:
     QString  udp265VideoSource      () { return videoSourceUDPH265; }
     QString  tcpVideoSource         () { return videoSourceTCP; }
     QString  mpegtsVideoSource      () { return videoSourceMPEGTS; }
+    QString  disabledVideoSource    () { return videoDisabled; }
 
-    static const char* videoSourceNoVideo;
-    static const char* videoDisabled;
-    static const char* videoSourceUDPH264;
-    static const char* videoSourceUDPH265;
-    static const char* videoSourceRTSP;
-    static const char* videoSourceTCP;
-    static const char* videoSourceMPEGTS;
+    /// Remove hardware forced-decoder options absent from the running GStreamer registry, and
+    /// reset the active choice to Default if it was pruned. Call after the video backend has
+    /// initialized (the registry is empty until then).
+    void pruneUnavailableDecoders();
+
+    static constexpr const char* videoSourceNoVideo           = QT_TRANSLATE_NOOP("VideoSettings", "No Video Available");
+    static constexpr const char* videoDisabled                = QT_TRANSLATE_NOOP("VideoSettings", "Video Stream Disabled");
+    static constexpr const char* videoSourceRTSP              = QT_TRANSLATE_NOOP("VideoSettings", "RTSP Video Stream");
+    static constexpr const char* videoSourceUDPH264           = QT_TRANSLATE_NOOP("VideoSettings", "UDP h.264 Video Stream");
+    static constexpr const char* videoSourceUDPH265           = QT_TRANSLATE_NOOP("VideoSettings", "UDP h.265 Video Stream");
+    static constexpr const char* videoSourceTCP               = QT_TRANSLATE_NOOP("VideoSettings", "TCP-MPEG2 Video Stream");
+    static constexpr const char* videoSourceMPEGTS            = QT_TRANSLATE_NOOP("VideoSettings", "MPEG-TS Video Stream");
+    static constexpr const char* videoSource3DRSolo           = QT_TRANSLATE_NOOP("VideoSettings", "3DR Solo (requires restart)");
+    static constexpr const char* videoSourceParrotDiscovery   = QT_TRANSLATE_NOOP("VideoSettings", "Parrot Discovery");
+    static constexpr const char* videoSourceYuneecMantisG     = QT_TRANSLATE_NOOP("VideoSettings", "Yuneec Mantis G");
+    static constexpr const char* videoSourceHerelinkAirUnit   = QT_TRANSLATE_NOOP("VideoSettings", "Herelink AirUnit");
+    static constexpr const char* videoSourceHerelinkHotspot   = QT_TRANSLATE_NOOP("VideoSettings", "Herelink Hotspot");
 
 signals:
-    void streamConfiguredChanged    ();
+    void streamConfiguredChanged    (bool configured);
 
 private slots:
     void _configChanged             (QVariant value);
 
 private:
     void _setDefaults               ();
+    void _setForceVideoDecodeList();
 
 private:
     bool _noVideo = false;
 
 };
-
-#endif

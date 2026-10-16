@@ -1,10 +1,15 @@
+{
+    "version":      1,
+    "fileType":  "FactMetaData",
+    "QGC.MetaData.Facts":
 [
 {
     "name":             "PlannedHomePositionAltitude",
-    "shortDescription": "Planned home position altitude",
+    "shortDesc": "Launch position altitude",
     "type":             "double",
-    "units":            "m",
+    "units":            "vertical m",
     "decimalPlaces":    1,
-    "defaultValue":     0
+    "default":     0
 }
 ]
+}

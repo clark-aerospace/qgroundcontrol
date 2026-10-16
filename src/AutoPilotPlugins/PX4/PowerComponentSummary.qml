@@ -1,51 +1,81 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
-
-/// @file
-///     @brief Battery, propeller and magnetometer summary
-///     @author Gus Grubba <mavlink@grubba.com>
-
-import QtQuick 2.3
-import QtQuick.Controls 1.2
-
-import QGroundControl.FactSystem 1.0
-import QGroundControl.FactControls 1.0
-import QGroundControl.Controls 1.0
-import QGroundControl.Palette 1.0
+import QGroundControl
+import QGroundControl.FactControls
+import QGroundControl.Controls
 
 Item {
-    anchors.fill:   parent
+    implicitWidth: mainLayout.implicitWidth
+    implicitHeight: mainLayout.implicitHeight
+    width: parent.width  // grows when Loader is wider than implicitWidth
 
-    QGCPalette { id: qgcPal; colorGroupEnabled: enabled }
+    property string _naString: qsTr("N/A")
+
     FactPanelController { id: controller; }
 
-    property Fact batVChargedFact:  controller.getParameterFact(-1, "BAT_V_CHARGED")
-    property Fact batVEmptyFact:    controller.getParameterFact(-1, "BAT_V_EMPTY")
-    property Fact batCellsFact:     controller.getParameterFact(-1, "BAT_N_CELLS")
-
-    Column {
-        anchors.fill:       parent
-
-        VehicleSummaryRow {
-            labelText: qsTr("Battery Full")
-            valueText: batVChargedFact ? batVChargedFact.valueString + " " + batVChargedFact.units : ""
+    property int _indexedBatteryParamCount: {
+        var batteryIndex = 1
+        while (controller.parameterExists(-1, "BAT" + batteryIndex + "_SOURCE")) {
+            batteryIndex++
         }
+        return batteryIndex - 1
+    }
 
-        VehicleSummaryRow {
-            labelText: qsTr("Battery Empty")
-            valueText: batVEmptyFact ? batVEmptyFact.valueString + " " + batVEmptyFact.units : ""
+    ColumnLayout {
+        id: mainLayout
+        width: parent.width
+        spacing: 0
+
+        Repeater {
+            model: _indexedBatteryParamCount
+
+            Loader {
+                Layout.fillWidth: true
+                sourceComponent: batterySummaryComponent
+
+                property int    batteryIndex:       index + 1
+                property bool   showBatteryIndex:   _indexedBatteryParamCount > 1
+            }
         }
+    }
 
-        VehicleSummaryRow {
-            labelText: qsTr("Number of Cells")
-            valueText: batCellsFact ? batCellsFact.valueString : ""
+    Component {
+        id: batterySummaryComponent
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 0
+
+            property var  _controller:      controller
+            property int  _batteryIndex:    batteryIndex
+
+            BatteryParams {
+                id:             battParams
+                controller:     _controller
+                batteryIndex:   _batteryIndex
+            }
+
+            VehicleSummaryRow {
+                labelText: showBatteryIndex ? qsTr("Battery %1 Source").arg(batteryIndex) : qsTr("Battery Source")
+                valueText: battParams.battSource.enumStringValue
+            }
+
+            VehicleSummaryRow {
+                labelText: showBatteryIndex ? qsTr("Battery %1 Full").arg(batteryIndex) : qsTr("Battery Full")
+                valueText: battParams.battHighVoltAvailable ? battParams.battHighVolt.valueString + " " + battParams.battHighVolt.units : _naString
+            }
+
+            VehicleSummaryRow {
+                labelText: showBatteryIndex ? qsTr("Battery %1 Empty").arg(batteryIndex) : qsTr("Battery Empty")
+                valueText: battParams.battLowVoltAvailable ? battParams.battLowVolt.valueString + " " + battParams.battLowVolt.units : _naString
+            }
+
+            VehicleSummaryRow {
+                labelText: showBatteryIndex ? qsTr("Battery %1 Number of Cells").arg(batteryIndex) : qsTr("Number of Cells")
+                valueText: battParams.battNumCellsAvailable ? battParams.battNumCells.valueString : _naString
+            }
         }
     }
 }

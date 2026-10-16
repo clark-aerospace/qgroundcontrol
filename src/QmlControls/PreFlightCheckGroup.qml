@@ -1,22 +1,14 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQml.Models
 
-import QtQuick      2.3
-import QtQml.Models 2.1
-
-import QGroundControl.Controls      1.0
-import QGroundControl.ScreenTools   1.0
+import QGroundControl
+import QGroundControl.Controls
 
 /// A PreFlightCheckGroup manages a set of PreFlightCheckButtons as a single entity.
 Column  {
     property string name
     property bool   passed: false
+    property bool   failed: false
 
     spacing: ScreenTools.defaultFontPixelHeight / 2
 
@@ -43,8 +35,11 @@ Column  {
     }
 
     SectionHeader {
-        id:     header
-        text:   name + (passed ? qsTr(" (passed)") : "")
+        id:             header
+        anchors.left:   parent.left
+        anchors.right:  parent.right
+        text:           name + (passed ? qsTr(" (passed)") : "")
+        color:          failed ? qgcPal.statusFailedText : (passed ? qgcPal.statusPassedText : qgcPal.statusPendingText)
     }
 
     Column {
@@ -56,9 +51,11 @@ Column  {
             for (var i=0; i<children.length; i++) {
                 if (!children[i].passed) {
                     passed = false
+                    failed = children[i].failed
                     return
                 }
             }
+            failed = false
             passed = true
         }
     }

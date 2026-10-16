@@ -1,39 +1,23 @@
-import QtQuick                      2.3
-import QGroundControl               1.0
-import QGroundControl.FactSystem    1.0
+import QtQuick
+import QtQuick.Dialogs
+import QtQuick.Layouts
+
+import QGroundControl
+import QGroundControl.Controls
 
 FactTextField {
-    unitsLabel:         fact ? fact.units : ""
-    extraUnitsLabel:    fact ? _altitudeModeExtraUnits : ""
-    showUnits:          true
-    showHelp:           true
+    unitsLabel:                 fact ? fact.units : ""
+    extraUnitsLabel:            fact ? qsTr("%1").arg(_altitudeFrameExtraUnits) : ""
+    showUnits:                  true
+    showHelp:                   true
 
-    property int altitudeMode: QGroundControl.AltitudeModeNone
+    property int altitudeFrame: QGroundControl.AltitudeFrameNone
 
-    readonly property string _altModeNoneExtraUnits:            ""
-    readonly property string _altModeRelativeExtraUnits:        qsTr("(Rel)")
-    readonly property string _altModeAbsoluteExtraUnits:        qsTr("(AMSL)")
-    readonly property string _altModeAboveTerrainExtraUnits:    qsTr("(Abv Terr)")
-    readonly property string _altModeTerrainFrameExtraUnits:    qsTr("(TerrF)")
+    property string _altitudeFrameExtraUnits
 
-    property string _altitudeModeExtraUnits: _altModeNoneExtraUnits
+    onAltitudeFrameChanged: updateAltitudeFrameExtraUnits()
 
-    onAltitudeModeChanged: updateAltitudeModeExtraUnits()
-
-    function updateAltitudeModeExtraUnits() {
-        if (altitudeMode === QGroundControl.AltitudeModeNone) {
-            _altitudeModeExtraUnits = _altModeNoneExtraUnits
-        } else if (altitudeMode === QGroundControl.AltitudeModeRelative) {
-            _altitudeModeExtraUnits = _altModeRelativeExtraUnits
-        } else if (altitudeMode === QGroundControl.AltitudeModeAbsolute) {
-            _altitudeModeExtraUnits = _altModeAbsoluteExtraUnits
-        } else if (altitudeMode === QGroundControl.AltitudeModeAboveTerrain) {
-            _altitudeModeExtraUnits = _altModeAboveTerrainExtraUnits
-        } else if (missionItem.altitudeMode === QGroundControl.AltitudeModeTerrainFrame) {
-            _altitudeModeExtraUnits = _altModeTerrainFrameExtraUnits
-        } else {
-            console.log("AltitudeFactTextField Internal error: Unknown altitudeMode", altitudeMode)
-            _altitudeModeExtraUnits = ""
-        }
+    function updateAltitudeFrameExtraUnits() {
+        _altitudeFrameExtraUnits = QGroundControl.altitudeFrameExtraUnits(altitudeFrame);
     }
 }

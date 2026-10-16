@@ -1,15 +1,12 @@
-import QtQuick          2.3
-import QtQuick.Controls 1.2
+import QtQuick
+import QtQuick.Controls
 
-import QGroundControl.Controls      1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.ScreenTools   1.0
+import QGroundControl
+import QGroundControl.Controls
 
-// An IndicatorButton works just like q QGCButton with the additional support or a red/green
-// indicator on the right edge.
-
+/// Works just like a regular button but it can have a red indicator on the right side displayed
 QGCButton {
-    property bool indicatorGreen: false
+    property bool indicatorGreen: false ///< true: no indicator shown, false: red indicator shown
 
     Rectangle {
         anchors.rightMargin:    ScreenTools.defaultFontPixelWidth / 3
@@ -18,6 +15,7 @@ QGCButton {
         width:                  radius * 2
         height:                 width
         radius:                 (ScreenTools.defaultFontPixelHeight * .75) / 2
-        color:                  indicatorGreen ? "#00d932" : "red"
+        color:                  "red"
+        visible:                enabled && !indicatorGreen
     }
 }

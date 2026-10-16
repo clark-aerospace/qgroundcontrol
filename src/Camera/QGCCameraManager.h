@@ -1,106 +1,164 @@
-/*!
- * @file
- *   @brief Camera Controller
- *   @author Gus Grubba <mavlink@grubba.com>
- *
- */
-
 #pragma once
 
-#include "QGCApplication.h"
-#include <QLoggingCategory>
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QHash>
+#include <QtCore/QMap>
+#include <QtCore/QObject>
+#include <QtCore/QPointer>
+#include <QtCore/QTimer>
+#include <QtCore/QVariantList>
+#include <QtQmlIntegration/QtQmlIntegration>
+
+#include "MAVLinkMessageType.h"
 #include "QmlObjectListModel.h"
-#include "QGCCameraControl.h"
 
-#include <QObject>
-#include <QTimer>
+class Vehicle;
 
-Q_DECLARE_LOGGING_CATEGORY(CameraManagerLog)
-
+class CameraMetaData;
 class Joystick;
+class MavlinkCameraControlInterface;
+class QGCCameraManagerTest;
+class QGCVideoStreamInfo;
+class SimulatedCameraControl;
 
-//-----------------------------------------------------------------------------
+/// \brief Camera Manager
+///
 class QGCCameraManager : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+    Q_MOC_INCLUDE("Joystick.h")
+    Q_MOC_INCLUDE("MavlinkCameraControlInterface.h")
+
+    Q_PROPERTY(QmlObjectListModel* cameras READ cameras NOTIFY camerasChanged)
+    Q_PROPERTY(QStringList cameraLabels READ cameraLabels NOTIFY cameraLabelsChanged)
+    Q_PROPERTY(MavlinkCameraControlInterface* currentCameraInstance READ currentCameraInstance NOTIFY currentCameraChanged)
+    Q_PROPERTY(int currentCamera READ currentCamera WRITE setCurrentCamera NOTIFY currentCameraChanged)
+    Q_PROPERTY(int currentZoomLevel READ currentZoomLevel NOTIFY currentZoomLevelChanged)
+
+#ifdef QGC_UNITTEST_BUILD
+    friend class QGCCameraManagerTest;
+#endif
+
 public:
-    QGCCameraManager(Vehicle* vehicle);
-    virtual ~QGCCameraManager();
+    explicit QGCCameraManager(Vehicle* vehicle);
+    ~QGCCameraManager();
 
-    Q_PROPERTY(QmlObjectListModel*  cameras                 READ cameras                                        NOTIFY camerasChanged)
-    Q_PROPERTY(QStringList          cameraLabels            READ cameraLabels                                   NOTIFY cameraLabelsChanged)
-    Q_PROPERTY(QGCCameraControl*    currentCameraInstance   READ currentCameraInstance                          NOTIFY currentCameraChanged)
-    Q_PROPERTY(int                  currentCamera           READ currentCamera      WRITE  setCurrentCamera     NOTIFY currentCameraChanged)
+    struct CameraStruct {
+        CameraStruct(QGCCameraManager* manager_, uint8_t compID_, Vehicle* vehicle_);
+        ~CameraStruct();
 
-    //-- Return a list of cameras provided by this vehicle
-    virtual QmlObjectListModel* cameras             () { return &_cameras; }
-    //-- Camera names to show the user (for selection)
-    virtual QStringList          cameraLabels       () { return _cameraLabels; }
-    //-- Current selected camera
-    virtual int                 currentCamera       () { return _currentCamera; }
-    virtual QGCCameraControl*   currentCameraInstance();
-    //-- Set current camera
-    virtual void                setCurrentCamera    (int sel);
-    //-- Current stream
-    virtual QGCVideoStreamInfo* currentStreamInstance();
-    //-- Current thermal stream
-    virtual QGCVideoStreamInfo* thermalStreamInstance();
+        bool infoReceived = false;
+        uint8_t compID = 0;
+        int retryCount = 0;
+        QElapsedTimer lastHeartbeat;
+        QTimer backoffTimer;
+        Vehicle* vehicle;           ///< Raw pointer is safe: CameraStruct is owned by QGCCameraManager which is a child of Vehicle
+        QPointer<QGCCameraManager> manager;
 
-signals:
-    void    camerasChanged          ();
-    void    cameraLabelsChanged     ();
-    void    currentCameraChanged    ();
-    void    streamChanged           ();
-
-protected slots:
-    virtual void    _vehicleReady           (bool ready);
-    virtual void    _mavlinkMessageReceived (const mavlink_message_t& message);
-    virtual void    _activeJoystickChanged  (Joystick* joystick);
-    virtual void    _stepZoom               (int direction);
-    virtual void    _startZoom              (int direction);
-    virtual void    _stopZoom               ();
-    virtual void    _stepCamera             (int direction);
-    virtual void    _stepStream             (int direction);
-    virtual void    _cameraTimeout          ();
-    virtual void    _triggerCamera          ();
-    virtual void    _startVideoRecording    ();
-    virtual void    _stopVideoRecording     ();
-    virtual void    _toggleVideoRecording   ();
-
-protected:
-    virtual QGCCameraControl* _findCamera   (int id);
-    virtual void    _requestCameraInfo      (int compID);
-    virtual void    _handleHeartbeat        (const mavlink_message_t& message);
-    virtual void    _handleCameraInfo       (const mavlink_message_t& message);
-    virtual void    _handleStorageInfo      (const mavlink_message_t& message);
-    virtual void    _handleCameraSettings   (const mavlink_message_t& message);
-    virtual void    _handleParamAck         (const mavlink_message_t& message);
-    virtual void    _handleParamValue       (const mavlink_message_t& message);
-    virtual void    _handleCaptureStatus    (const mavlink_message_t& message);
-    virtual void    _handleVideoStreamInfo  (const mavlink_message_t& message);
-    virtual void    _handleVideoStreamStatus(const mavlink_message_t& message);
-
-protected:
-
-    class CameraStruct : public QObject {
-    public:
-        CameraStruct(QObject* parent, uint8_t compID_);
-        QTime   lastHeartbeat;
-        bool    infoReceived = false;
-        bool    gaveUp       = false;
-        int     tryCount     = 0;
-        uint8_t compID       = 0;
+    private:
+        Q_DISABLE_COPY_MOVE(CameraStruct)
     };
 
-    Vehicle*            _vehicle            = nullptr;
-    Joystick*           _activeJoystick     = nullptr;
-    bool                _vehicleReadyState  = false;
-    int                 _currentTask        = 0;
-    QmlObjectListModel  _cameras;
-    QStringList         _cameraLabels;
-    int                 _currentCamera      = 0;
-    QTime               _lastZoomChange;
-    QTime               _lastCameraChange;
-    QTimer              _cameraTimer;
+    /// Stable context passed as opaque handler data to async camera info request
+    /// callbacks. Owned by the manager and kept alive for its full lifetime so a
+    /// callback firing after the CameraStruct was deleted (lost camera) never
+    /// dereferences freed memory (issue #13251).
+    struct CameraInfoRequestContext {
+        QPointer<QGCCameraManager> manager;
+        uint8_t compID = 0;
+    };
+
+    /// Returns the lazily created, manager-lifetime context for compId.
+    CameraInfoRequestContext* cameraInfoContext(uint8_t compId);
+
+    QmlObjectListModel* cameras() { return &_cameras; }
+    const QmlObjectListModel* cameras() const { return &_cameras; }
+    QStringList cameraLabels() const { return _cameraLabels; }
+    int currentCamera() const { return _currentCameraIndex; }
+    MavlinkCameraControlInterface* currentCameraInstance();
+    void setCurrentCamera(int sel);
+    QGCVideoStreamInfo* currentStreamInstance();
+    QGCVideoStreamInfo* thermalStreamInstance();
+
+    const QVariantList& cameraList() const;
+
+    Vehicle* vehicle() const { return _vehicle; }
+
+    CameraStruct* findCameraStruct(uint8_t compId) const { return _cameraInfoRequest.value(QString::number(compId), nullptr); }
+
+    int currentZoomLevel() const;
+    double aspectForComp(int compId) const;
+    double currentCameraAspect();
+    Q_INVOKABLE void requestCameraFovForComp(int compId);
+
+private:
+    int _zoomValueCurrent = 0;
+
+signals:
+    void camerasChanged();
+    void cameraLabelsChanged();
+    void currentCameraChanged();
+    void streamChanged();
+
+    void currentZoomLevelChanged();
+
+protected slots:
+    void _vehicleReady(bool ready);
+    void _mavlinkMessageReceived(const mavlink_message_t& message);
+    void _activeJoystickChanged(Joystick* joystick);
+    void _stepZoom(int direction);
+    void _startZoom(int direction);
+    void _stopZoom();
+    void _stepFocus(int direction);
+    void _startFocus(int direction);
+    void _stopFocus();
+    void _stepCamera(int direction);
+    void _stepStream(int direction);
+    void _checkForLostCameras();
+    void _triggerCamera();
+    void _startVideoRecording();
+    void _stopVideoRecording();
+    void _toggleVideoRecording();
+
+private slots:
+    void _initialConnectCompleted();
+    void _setCurrentZoomLevel(int level);
+
+private:
+    MavlinkCameraControlInterface* _findCamera(int id);
+    void _requestCameraInfo(CameraStruct* cameraInfo);
+    void _handleHeartbeat(const mavlink_message_t& message);
+    void _handleCameraInfo(const mavlink_message_t& message);
+    void _handleStorageInformation(const mavlink_message_t& message);
+    void _handleCameraSettings(const mavlink_message_t& message);
+    void _handleParamExtAck(const mavlink_message_t& message);
+    void _handleParamExtValue(const mavlink_message_t& message);
+    void _handleCameraCaptureStatus(const mavlink_message_t& message);
+    void _handleVideoStreamInformation(const mavlink_message_t& message);
+    void _handleVideoStreamStatus(const mavlink_message_t& message);
+    void _handleBatteryStatus(const mavlink_message_t& message);
+    void _handleTrackingImageStatus(const mavlink_message_t& message);
+    void _addCameraControlToLists(MavlinkCameraControlInterface* cameraControl);
+    void _handleCameraFovStatus(const mavlink_message_t& message);
+
+    Vehicle* _vehicle;              ///< Raw pointer is safe: QGCCameraManager is a QObject child of Vehicle, so Vehicle always outlives us
+    QPointer<SimulatedCameraControl> _simulatedCameraControl;
+    QPointer<Joystick> _activeJoystick;
+    bool _vehicleReadyState = false;
+    int _currentTask = 0;
+    QmlObjectListModel _cameras;
+    QStringList _cameraLabels;
+    int _currentCameraIndex = 0;
+    QElapsedTimer _lastZoomChange;
+    QElapsedTimer _lastFocusChange;
+    QElapsedTimer _lastCameraChange;
+    QTimer _camerasLostHeartbeatTimer;
     QMap<QString, CameraStruct*> _cameraInfoRequest;
+    QHash<uint8_t, CameraInfoRequestContext*> _cameraInfoContexts;
+    static QVariantList _cameraList;
+    bool _initialConnectComplete = false;
+
+    QHash<int, double> _aspectByCompId;
 };

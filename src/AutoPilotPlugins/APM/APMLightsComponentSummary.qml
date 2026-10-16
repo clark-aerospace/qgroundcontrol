@@ -1,13 +1,15 @@
-import QtQuick          2.3
-import QtQuick.Controls 1.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
-import QGroundControl.FactSystem 1.0
-import QGroundControl.FactControls 1.0
-import QGroundControl.Controls 1.0
-import QGroundControl.Palette 1.0
+import QGroundControl
+import QGroundControl.FactControls
+import QGroundControl.Controls
 
 Item {
-    anchors.fill:   parent
+    implicitWidth: mainLayout.implicitWidth
+    implicitHeight: mainLayout.implicitHeight
+    width: parent.width  // grows when Loader is wider than implicitWidth
 
     FactPanelController { id: controller; }
 
@@ -82,8 +84,9 @@ Item {
         property int    lights2Function:         _rcFunctionRCIN10
     }
 
-    Column {
-        anchors.fill:       parent
+    ColumnLayout {
+        id: mainLayout
+        spacing: 0
 
         VehicleSummaryRow {
             labelText:  qsTr("Lights Output 1")

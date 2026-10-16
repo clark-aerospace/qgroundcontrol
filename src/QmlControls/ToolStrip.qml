@@ -1,97 +1,83 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
 
-import QtQuick          2.11
-import QtQuick.Controls 2.2
-
-import QGroundControl               1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.Controls      1.0
+import QGroundControl
+import QGroundControl.Controls
 
 Rectangle {
     id:         _root
-    color:      qgcPal.globalTheme === QGCPalette.Light ? QGroundControl.corePlugin.options.toolbarBackgroundLight : QGroundControl.corePlugin.options.toolbarBackgroundDark
-    width:      _idealWidth < repeater.contentWidth ? repeater.contentWidth : _idealWidth
-    height:     toolStripColumn.height + (toolStripColumn.anchors.margins * 2)
+    color:      qgcPal.windowTransparent
+    width:      ScreenTools.defaultFontPixelWidth * 7
+    height:     Math.min(maxHeight, toolStripColumn.height + (flickable.anchors.margins * 2))
     radius:     ScreenTools.defaultFontPixelWidth / 2
 
     property alias  model:              repeater.model
     property real   maxHeight           ///< Maximum height for control, determines whether text is hidden to make control shorter
+    property var    fontSize:           ScreenTools.smallFontPointSize
 
-    property AbstractButton lastClickedButton: null
+    property var _dropPanel: dropPanel
 
-    // Ensure we don't get narrower than content
-    property real _idealWidth: (ScreenTools.isMobile ? ScreenTools.minTouchPixels : ScreenTools.defaultFontPixelWidth * 8) + toolStripColumn.anchors.margins * 2
-
-    signal clicked(int index, bool checked)
-
-    function setChecked(idx, check) {
-        repeater.itemAt(idx).checked = check
+    function simulateClick(buttonIndex) {
+        var button = toolStripColumn.children[buttonIndex]
+        if (button.checkable) {
+            button.checked = !button.checked
+        }
+        button.clicked()
     }
 
-    function getChecked(idx) {
-        return repeater.itemAt(idx).checked
+    signal dropped(int index)
+
+    DeadMouseArea {
+        anchors.fill: parent
     }
 
-    ButtonGroup {
-        id:         buttonGroup
-        buttons:    toolStripColumn.children
-    }
-
-    Column {
-        id:                 toolStripColumn
+    QGCFlickable {
+        id:                 flickable
         anchors.margins:    ScreenTools.defaultFontPixelWidth * 0.4
-        anchors.top:        parent.top
-        anchors.left:       parent.left
-        anchors.right:      parent.right
-        spacing:            ScreenTools.defaultFontPixelWidth * 0.25
+        anchors.fill:       parent
+        contentHeight:      toolStripColumn.height
+        flickableDirection: Flickable.VerticalFlick
+        clip:               true
 
-        Repeater {
-            id: repeater
+        Column {
+            id:             toolStripColumn
+            anchors.left:   parent.left
+            anchors.right:  parent.right
+            spacing:        ScreenTools.defaultFontPixelWidth * 0.25
 
-            QGCHoverButton {
-                id:             buttonTemplate
+            Repeater {
+                id: repeater
 
-                anchors.left:   toolStripColumn.left
-                anchors.right:  toolStripColumn.right
-                height:         width
-                radius:         ScreenTools.defaultFontPixelWidth / 2
-                fontPointSize:  ScreenTools.smallFontPointSize
-                autoExclusive:  true
+                ToolStripHoverButton {
+                    id:                 buttonTemplate
+                    anchors.left:       toolStripColumn.left
+                    anchors.right:      toolStripColumn.right
+                    height:             width
+                    radius:             ScreenTools.defaultFontPixelWidth / 2
+                    fontPointSize:      _root.fontSize
+                    toolStripAction:    modelData
+                    dropPanel:          _dropPanel
+                    onDropped: (index) => _root.dropped(index)
 
-                enabled:        modelData.buttonEnabled
-                visible:        modelData.buttonVisible
-                imageSource:    modelData.showAlternateIcon ? modelData.alternateIconSource : modelData.iconSource
-                text:           modelData.name
-                checked:        modelData.checked !== undefined ? modelData.checked : checked
-
-                ButtonGroup.group: buttonGroup
-                // Only drop pannel and toggleable are checkable
-                checkable: modelData.dropPanelComponent !== undefined || (modelData.toggle !== undefined && modelData.toggle)
-
-                onClicked: {
-                    dropPanel.hide()    // DropPanel will call hide on "lastClickedButton"
-                    if (modelData.dropPanelComponent === undefined) {
-                        _root.clicked(index, checked)
-                    } else if (checked) {
-                        var panelEdgeTopPoint = mapToItem(_root, width, 0)
-                        dropPanel.show(panelEdgeTopPoint, height, modelData.dropPanelComponent)
+                    onCheckedChanged: {
+                        // We deal with exclusive check state manually since usinug autoExclusive caused all sorts of crazt problems
+                        if (checked) {
+                            for (var i=0; i<repeater.count; i++) {
+                                if (i != index) {
+                                    var button = repeater.itemAt(i)
+                                    if (button.checked) {
+                                        button.checked = false
+                                    }
+                                }
+                            }
+                        }
                     }
-                    if(_root && buttonTemplate)
-                        _root.lastClickedButton = buttonTemplate
                 }
             }
         }
     }
 
-    DropPanel {
+    ToolStripDropPanel {
         id:         dropPanel
         toolStrip:  _root
     }

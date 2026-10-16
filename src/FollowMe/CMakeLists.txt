@@ -1,15 +1,12 @@
+# ============================================================================
+# Follow Me Module
+# Enables vehicles to follow a ground station's GPS position
+# ============================================================================
 
-add_library(FollowMe
-	FollowMe.cc
+target_sources(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        FollowMe.cc
+        FollowMe.h
 )
 
-target_link_libraries(FollowMe
-	PUBLIC
-		qgc
-)
-
-target_include_directories(FollowMe
-	PUBLIC
-		${CMAKE_CURRENT_SOURCE_DIR}
-	)
-
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

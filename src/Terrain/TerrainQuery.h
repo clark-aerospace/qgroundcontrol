@@ -1,297 +1,192 @@
-/****************************************************************************
- *
- *   (c) 2017 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
-#include "TerrainTile.h"
-#include "QGCMapEngineData.h"
-#include "QGCLoggingCategory.h"
+#include <QtCore/QObject>
+#include <QtCore/QPointer>
+#include <QtCore/QQueue>
+#include <QtCore/QVariant>
+#include <QtPositioning/QGeoCoordinate>
 
-#include <QObject>
-#include <QGeoCoordinate>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QTimer>
-#include <QtLocation/private/qgeotiledmapreply_p.h>
+#include "TerrainPathHeightInfo.h"
+#include "TerrainQueryInterface.h"
 
-Q_DECLARE_LOGGING_CATEGORY(TerrainQueryLog)
-Q_DECLARE_LOGGING_CATEGORY(TerrainQueryVerboseLog)
+class QTimer;
+
+// IMPORTANT NOTE: The terrain query objects below must continue to live until the the terrain system signals data back through them.
+// Because of that it makes object lifetime tricky. Normally you would use autoDelete = true such they delete themselves when they
+// complete. The case for using autoDelete=false is where the query has not been "newed" as a standalone object.
+//
+// Another typical use case is to query some terrain data and while you are waiting for it to come back the underlying reason
+// for that query changes and you end up needed to query again for a new set of data. In this case you are no longer interested
+// in the results of the previous query. The way to do that is to disconnect the data received signal on the old stale query
+// when you create the new query.
+
+/*===========================================================================*/
 
 class TerrainAtCoordinateQuery;
 
-/// Base class for offline/online terrain queries
-class TerrainQueryInterface : public QObject
+class TerrainAtCoordinateBatchManager : public QObject
 {
     Q_OBJECT
 
 public:
-    TerrainQueryInterface(QObject* parent) : QObject(parent) { }
+    explicit TerrainAtCoordinateBatchManager(QObject *parent = nullptr);
+    ~TerrainAtCoordinateBatchManager();
 
-    /// Request terrain heights for specified coodinates.
-    /// Signals: coordinateHeights when data is available
-    virtual void requestCoordinateHeights(const QList<QGeoCoordinate>& coordinates) = 0;
+    static TerrainAtCoordinateBatchManager *instance();
 
-    /// Requests terrain heights along the path specified by the two coordinates.
-    /// Signals: pathHeights
-    ///     @param coordinates to query
-    virtual void requestPathHeights(const QGeoCoordinate& fromCoord, const QGeoCoordinate& toCoord) = 0;
-
-    /// Request terrain heights for the rectangular area specified.
-    /// Signals: carpetHeights when data is available
-    ///     @param swCoord South-West bound of rectangular area to query
-    ///     @param neCoord North-East bound of rectangular area to query
-    ///     @param statsOnly true: Return only stats, no carpet data
-    virtual void requestCarpetHeights(const QGeoCoordinate& swCoord, const QGeoCoordinate& neCoord, bool statsOnly) = 0;
-
-signals:
-    void coordinateHeightsReceived(bool success, QList<double> heights);
-    void pathHeightsReceived(bool success, double latStep, double lonStep, const QList<double>& heights);
-    void carpetHeightsReceived(bool success, double minHeight, double maxHeight, const QList<QList<double>>& carpet);
-};
-
-/// AirMap online implementation of terrain queries
-class TerrainAirMapQuery : public TerrainQueryInterface {
-    Q_OBJECT
-
-public:
-    TerrainAirMapQuery(QObject* parent = nullptr);
-
-    // Overrides from TerrainQueryInterface
-    void requestCoordinateHeights   (const QList<QGeoCoordinate>& coordinates) final;
-    void requestPathHeights         (const QGeoCoordinate& fromCoord, const QGeoCoordinate& toCoord) final;
-    void requestCarpetHeights       (const QGeoCoordinate& swCoord, const QGeoCoordinate& neCoord, bool statsOnly) final;
+    void addQuery(TerrainAtCoordinateQuery *terrainAtCoordinateQuery, const QList<QGeoCoordinate> &coordinates);
 
 private slots:
-    void _requestError              (QNetworkReply::NetworkError code);
-    void _requestFinished           (void);
-    void _sslErrors                 (const QList<QSslError> &errors);
+    void _sendNextBatch();
+    void _coordinateHeights(bool success, const QList<double> &heights);
 
 private:
-    void _sendQuery                 (const QString& path, const QUrlQuery& urlQuery);
-    void _requestFailed             (void);
-    void _parseCoordinateData       (const QJsonValue& coordinateJson);
-    void _parsePathData             (const QJsonValue& pathJson);
-    void _parseCarpetData           (const QJsonValue& carpetJson);
-
-    enum QueryMode {
-        QueryModeCoordinates,
-        QueryModePath,
-        QueryModeCarpet
+    struct QueuedRequestInfo_t {
+        QPointer<TerrainAtCoordinateQuery> terrainAtCoordinateQuery;
+        QList<QGeoCoordinate> coordinates;
     };
 
-    QNetworkAccessManager   _networkManager;
-    QueryMode               _queryMode;
-    bool                    _carpetStatsOnly;
-};
-
-/// AirMap offline cachable implementation of terrain queries
-class TerrainOfflineAirMapQuery : public TerrainQueryInterface {
-    Q_OBJECT
-
-public:
-    TerrainOfflineAirMapQuery(QObject* parent = nullptr);
-
-    // Overrides from TerrainQueryInterface
-    void requestCoordinateHeights(const QList<QGeoCoordinate>& coordinates) final;
-    void requestPathHeights(const QGeoCoordinate& fromCoord, const QGeoCoordinate& toCoord) final;
-    void requestCarpetHeights(const QGeoCoordinate& swCoord, const QGeoCoordinate& neCoord, bool statsOnly) final;
-
-    // Internal methods
-    void _signalCoordinateHeights(bool success, QList<double> heights);
-    void _signalPathHeights(bool success, double latStep, double lonStep, const QList<double>& heights);
-    void _signalCarpetHeights(bool success, double minHeight, double maxHeight, const QList<QList<double>>& carpet);
-};
-
-/// Used internally by TerrainOfflineAirMapQuery to manage terrain tiles
-class TerrainTileManager : public QObject {
-    Q_OBJECT
-
-public:
-    TerrainTileManager(void);
-
-    void addCoordinateQuery (TerrainOfflineAirMapQuery* terrainQueryInterface, const QList<QGeoCoordinate>& coordinates);
-    void addPathQuery       (TerrainOfflineAirMapQuery* terrainQueryInterface, const QGeoCoordinate& startPoint, const QGeoCoordinate& endPoint);
-
-private slots:
-    void _terrainDone       (QByteArray responseBytes, QNetworkReply::NetworkError error);
-
-private:
-    enum class State {
-        Idle,
-        Downloading,
+    struct SentRequestInfo_t {
+        QPointer<TerrainAtCoordinateQuery> terrainAtCoordinateQuery;
+        qsizetype cCoord;
     };
 
-    enum QueryMode {
-        QueryModeCoordinates,
-        QueryModePath,
-        QueryModeCarpet
-    };
+    void _batchFailed();
+    QString _stateToString(TerrainQuery::State state);
 
-    typedef struct {
-        TerrainOfflineAirMapQuery*  terrainQueryInterface;
-        QueryMode                   queryMode;
-        double                      latStep, lonStep;
-        QList<QGeoCoordinate>       coordinates;
-    } QueuedRequestInfo_t;
-
-    void    _tileFailed                         (void);
-    bool    _getAltitudesForCoordinates         (const QList<QGeoCoordinate>& coordinates, QList<double>& altitudes, bool& error);
-    QString _getTileHash                        (const QGeoCoordinate& coordinate);
-
-    QList<QueuedRequestInfo_t>  _requestQueue;
-    State                       _state = State::Idle;
-    QNetworkAccessManager       _networkManager;
-
-    QMutex                      _tilesMutex;
-    QHash<QString, TerrainTile> _tiles;
+    QQueue<QueuedRequestInfo_t> _requestQueue;
+    QList<SentRequestInfo_t> _sentRequests;
+    TerrainQuery::State _state = TerrainQuery::State::Idle;
+    QTimer *_batchTimer = nullptr;
+    TerrainQueryInterface *_terrainQuery = nullptr;
+    static constexpr int _batchTimeout = 500;
 };
 
-/// Used internally by TerrainAtCoordinateQuery to batch coordinate requests together
-class TerrainAtCoordinateBatchManager : public QObject {
-    Q_OBJECT
+/*===========================================================================*/
 
-public:
-    TerrainAtCoordinateBatchManager(void);
-
-    void addQuery(TerrainAtCoordinateQuery* terrainAtCoordinateQuery, const QList<QGeoCoordinate>& coordinates);
-
-private slots:
-    void _sendNextBatch         (void);
-    void _queryObjectDestroyed  (QObject* elevationProvider);
-    void _coordinateHeights     (bool success, QList<double> heights);
-
-private:
-    typedef struct {
-        TerrainAtCoordinateQuery*   terrainAtCoordinateQuery;
-        QList<QGeoCoordinate>       coordinates;
-    } QueuedRequestInfo_t;
-
-    typedef struct {
-        TerrainAtCoordinateQuery*   terrainAtCoordinateQuery;
-        bool                        queryObjectDestroyed;
-        int                         cCoord;
-    } SentRequestInfo_t;
-
-
-    enum class State {
-        Idle,
-        Downloading,
-    };
-
-    void _batchFailed(void);
-    QString _stateToString(State state);
-
-    QList<QueuedRequestInfo_t>  _requestQueue;
-    QList<SentRequestInfo_t>    _sentRequests;
-    State                       _state = State::Idle;
-    const int                   _batchTimeout = 500;
-    QTimer                      _batchTimer;
-    TerrainOfflineAirMapQuery   _terrainQuery;
-};
-
-/// NOTE: TerrainAtCoordinateQuery is not thread safe. All instances/calls to ElevationProvider must be on main thread.
+/// \brief NOTE: TerrainAtCoordinateQuery is not thread safe. All instances/calls to ElevationProvider must be on main thread.
+///
 class TerrainAtCoordinateQuery : public QObject
 {
     Q_OBJECT
+
 public:
-    TerrainAtCoordinateQuery(QObject* parent = nullptr);
+    /// @param autoDelete true: object will delete itself after it signals results
+    explicit TerrainAtCoordinateQuery(bool autoDelete, QObject *parent = nullptr);
+    ~TerrainAtCoordinateQuery();
 
     /// Async terrain query for a list of lon,lat coordinates. When the query is done, the terrainData() signal
     /// is emitted.
     ///     @param coordinates to query
-    void requestData(const QList<QGeoCoordinate>& coordinates);
+    void requestData(const QList<QGeoCoordinate> &coordinates);
 
-    // Internal method
-    void _signalTerrainData(bool success, QList<double>& heights);
+    /// Either returns altitudes from cache or queues database request
+    ///     @param[out] error true: altitude not returned due to error, false: altitudes returned
+    /// @return true: altitude returned (check error as well), false: database query queued (altitudes not returned)
+    static bool getAltitudesForCoordinates(const QList<QGeoCoordinate> &coordinates, QList<double> &altitudes, bool &error);
+
+    void signalTerrainData(bool success, const QList<double> &heights);
 
 signals:
-    void terrainDataReceived(bool success, QList<double> heights);
+    void terrainDataReceived(bool success, const QList<double> &heights);
+
+private:
+    bool _autoDelete = false;
 };
+
+/*===========================================================================*/
 
 class TerrainPathQuery : public QObject
 {
     Q_OBJECT
 
 public:
-    TerrainPathQuery(QObject* parent = nullptr);
+    /// @param autoDelete true: object will delete itself after it signals results
+    explicit TerrainPathQuery(bool autoDelete, QObject *parent = nullptr);
+    ~TerrainPathQuery();
 
     /// Async terrain query for terrain heights between two lat/lon coordinates. When the query is done, the terrainData() signal
     /// is emitted.
     ///     @param coordinates to query
-    void requestData(const QGeoCoordinate& fromCoord, const QGeoCoordinate& toCoord);
+    void requestData(const QGeoCoordinate &fromCoord, const QGeoCoordinate &toCoord);
 
-    typedef struct {
-        double          latStep;    ///< Amount of latitudinal distance between each returned height
-        double          lonStep;    ///< Amount of longitudinal distance between each returned height
-        QList<double>   heights;    ///< Terrain heights along path
-    } PathHeightInfo_t;
+    using PathHeightInfo_t = TerrainPathHeightInfo;
 
 signals:
     /// Signalled when terrain data comes back from server
-    void terrainDataReceived(bool success, const PathHeightInfo_t& pathHeightInfo);
+    void terrainDataReceived(bool success, const TerrainPathQuery::PathHeightInfo_t &pathHeightInfo);
 
 private slots:
-    void _pathHeights(bool success, double latStep, double lonStep, const QList<double>& heights);
+    void _pathHeights(bool success, double distanceBetween, double finalDistanceBetween, const QList<double> &heights);
 
 private:
-    TerrainOfflineAirMapQuery _terrainQuery;
+    bool _autoDelete = false;
+    TerrainQueryInterface *_terrainQuery = nullptr;
 };
 
-Q_DECLARE_METATYPE(TerrainPathQuery::PathHeightInfo_t)
+/*===========================================================================*/
+
+class TerrainAreaQuery : public QObject
+{
+    Q_OBJECT
+
+public:
+    /// @param autoDelete true: object will delete itself after it signals results
+    explicit TerrainAreaQuery(bool autoDelete, QObject *parent = nullptr);
+    ~TerrainAreaQuery();
+
+    /// Async terrain query for terrain heights for the rectangular area specified.
+    /// When the query is done, the terrainDataReceived() signal is emitted.
+    ///     @param swCoord South-West bound of rectangular area to query
+    ///     @param neCoord North-East bound of rectangular area to query
+    void requestData(const QGeoCoordinate &swCoord, const QGeoCoordinate &neCoord);
+
+    struct CarpetHeightInfo_t {
+        double minHeight;
+        double maxHeight;
+        QList<QList<double>> carpet;
+    };
+
+signals:
+    void terrainDataReceived(bool success, const TerrainAreaQuery::CarpetHeightInfo_t &carpetHeightInfo);
+
+private slots:
+    void _carpetHeights(bool success, double minHeight, double maxHeight, const QList<QList<double>> &carpet);
+
+private:
+    bool _autoDelete = false;
+    TerrainQueryInterface *_terrainQuery = nullptr;
+};
+Q_DECLARE_METATYPE(TerrainAreaQuery::CarpetHeightInfo_t)
+
+/*===========================================================================*/
 
 class TerrainPolyPathQuery : public QObject
 {
     Q_OBJECT
 
 public:
-    TerrainPolyPathQuery(QObject* parent = nullptr);
+    ///     @param autoDelete true: object will delete itself after it signals results
+    explicit TerrainPolyPathQuery(bool autoDelete, QObject *parent = nullptr);
+    ~TerrainPolyPathQuery();
 
     /// Async terrain query for terrain heights for the paths between each specified QGeoCoordinate.
     /// When the query is done, the terrainData() signal is emitted.
     ///     @param polyPath List of QGeoCoordinate
-    void requestData(const QVariantList& polyPath);
-    void requestData(const QList<QGeoCoordinate>& polyPath);
+    void requestData(const QVariantList &polyPath);
+    void requestData(const QList<QGeoCoordinate> &polyPath);
 
 signals:
     /// Signalled when terrain data comes back from server
-    void terrainDataReceived(bool success, const QList<TerrainPathQuery::PathHeightInfo_t>& rgPathHeightInfo);
+    void terrainDataReceived(bool success, const QList<TerrainPathQuery::PathHeightInfo_t> &rgPathHeightInfo);
 
 private slots:
-    void _terrainDataReceived(bool success, const TerrainPathQuery::PathHeightInfo_t& pathHeightInfo);
+    void _terrainDataReceived(bool success, const TerrainPathQuery::PathHeightInfo_t &pathHeightInfo);
 
 private:
-    int                                         _curIndex;
-    QList<QGeoCoordinate>                       _rgCoords;
-    QList<TerrainPathQuery::PathHeightInfo_t>   _rgPathHeightInfo;
-    TerrainPathQuery                            _pathQuery;
+    bool _autoDelete = false;
+    int _curIndex = 0;
+    QList<QGeoCoordinate> _rgCoords;
+    QList<TerrainPathQuery::PathHeightInfo_t> _rgPathHeightInfo;
+    TerrainPathQuery *_pathQuery = nullptr;
 };
-
-
-class TerrainCarpetQuery : public QObject
-{
-    Q_OBJECT
-
-public:
-    TerrainCarpetQuery(QObject* parent = nullptr);
-
-    /// Async terrain query for terrain information bounded by the specifed corners.
-    /// When the query is done, the terrainData() signal is emitted.
-    ///     @param swCoord South-West bound of rectangular area to query
-    ///     @param neCoord North-East bound of rectangular area to query
-    ///     @param statsOnly true: Return only stats, no carpet data
-    void requestData(const QGeoCoordinate& swCoord, const QGeoCoordinate& neCoord, bool statsOnly);
-
-signals:
-    /// Signalled when terrain data comes back from server
-    void terrainDataReceived(bool success, double minHeight, double maxHeight, const QList<QList<double>>& carpet);
-
-private:
-    TerrainAirMapQuery _terrainQuery;
-};
-

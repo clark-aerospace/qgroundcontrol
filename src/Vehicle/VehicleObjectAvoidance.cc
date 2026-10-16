@@ -1,18 +1,8 @@
-/****************************************************************************
- *
- *   (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-#include "Vehicle.h"
 #include "VehicleObjectAvoidance.h"
+#include "MAVLinkLib.h"
+#include "Vehicle.h"
 #include "ParameterManager.h"
-#include <cmath>
-
-static const char* kColPrevParam = "MPC_COL_PREV_D";
+#include "VehicleSetpointFactGroup.h"
 
 //-----------------------------------------------------------------------------
 VehicleObjectAvoidance::VehicleObjectAvoidance(Vehicle *vehicle, QObject* parent)
@@ -67,7 +57,7 @@ VehicleObjectAvoidance::update(mavlink_obstacle_distance_t* message)
 bool
 VehicleObjectAvoidance::enabled()
 {
-    uint8_t id = static_cast<uint8_t>(_vehicle->id());
+    uint8_t id = static_cast<uint8_t>(_vehicle->compId());
     if(_vehicle->parameterManager()->parameterExists(id, kColPrevParam)) {
         return _vehicle->parameterManager()->getParameter(id, kColPrevParam)->rawValue().toInt() >= 0;
     }
@@ -78,7 +68,7 @@ VehicleObjectAvoidance::enabled()
 void
 VehicleObjectAvoidance::start(int minDistance)
 {
-    uint8_t id = static_cast<uint8_t>(_vehicle->id());
+    uint8_t id = static_cast<uint8_t>(_vehicle->compId());
     if(_vehicle->parameterManager()->parameterExists(id, kColPrevParam)) {
         _vehicle->parameterManager()->getParameter(id, kColPrevParam)->setRawValue(minDistance);
         emit objectAvoidanceChanged();
@@ -89,7 +79,7 @@ VehicleObjectAvoidance::start(int minDistance)
 void
 VehicleObjectAvoidance::stop()
 {
-    uint8_t id = static_cast<uint8_t>(_vehicle->id());
+    uint8_t id = static_cast<uint8_t>(_vehicle->compId());
     if(_vehicle->parameterManager()->parameterExists(id, kColPrevParam)) {
         _vehicle->parameterManager()->getParameter(id, kColPrevParam)->setRawValue(-1);
         emit objectAvoidanceChanged();

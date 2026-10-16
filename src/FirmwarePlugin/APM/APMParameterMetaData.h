@@ -1,88 +1,32 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QHash>
+#include <QtCore/QJsonObject>
+#include "ParameterMetaData.h"
 
-#ifndef APMParameterMetaData_H
-#define APMParameterMetaData_H
-
-#include <QObject>
-#include <QMap>
-#include <QPointer>
-#include <QXmlStreamReader>
-#include <QLoggingCategory>
-
-#include "FactSystem.h"
-#include "AutoPilotPlugin.h"
-#include "Vehicle.h"
-
-Q_DECLARE_LOGGING_CATEGORY(APMParameterMetaDataLog)
-Q_DECLARE_LOGGING_CATEGORY(APMParameterMetaDataVerboseLog)
-
-class APMFactMetaDataRaw
+class APMParameterMetaData : public ParameterMetaData
 {
 public:
-    APMFactMetaDataRaw(void)
-        : rebootRequired(false)
-    { }
+    explicit APMParameterMetaData(QObject *parent = nullptr);
+    ~APMParameterMetaData() override;
 
-    QString name;
-    QString category;
-    QString group;
-    QString shortDescription;
-    QString longDescription;
-    QString min;
-    QString max;
-    QString incrementSize;
-    QString units;
-    bool    rebootRequired;
-    QList<QPair<QString, QString> > values;
-    QList<QPair<QString, QString> > bitmask;
-};
-
-
-/// Collection of Parameter Facts for PX4 AutoPilot
-
-typedef QMap<QString, APMFactMetaDataRaw*> ParameterNametoFactMetaDataMap;
-
-class APMParameterMetaData : public QObject
-{
-    Q_OBJECT
-    
-public:
-    APMParameterMetaData(void);
-
-    void addMetaDataToFact(Fact* fact, MAV_TYPE vehicleType);
-    void loadParameterFactMetaDataFile(const QString& metaDataFile);
-
-    static void getParameterMetaDataVersionInfo(const QString& metaDataFile, int& majorVersion, int& minorVersion);
+protected:
+    void parseParameterJson(const QJsonObject &json) override;
+    FactMetaData *_lookupMetaData(const QString &name, FactMetaData::ValueType_t type) override;
+    FactMetaData *_createDefaultMetaData(const QString &name, FactMetaData::ValueType_t type) override;
+    void _postProcessMetaData(const QString &name, FactMetaData *metaData) override;
 
 private:
-    enum {
-        XmlStateNone,
-        XmlstateParamFileFound,
-        XmlStateFoundVehicles,
-        XmlStateFoundLibraries,
-        XmlStateFoundParameters,
-        XmlStateFoundVersion,
-        XmlStateFoundGroup,
-        XmlStateFoundParameter,
-        XmlStateDone
-    };    
+    struct RawParamData {
+        QString group;
+        QJsonObject fields;
+    };
 
-    QVariant _stringToTypedVariant(const QString& string, FactMetaData::ValueType_t type, bool* convertOk);
-    bool skipXMLBlock(QXmlStreamReader& xml, const QString& blockName);
-    bool parseParameterAttributes(QXmlStreamReader& xml, APMFactMetaDataRaw *rawMetaData);
-    void correctGroupMemberships(ParameterNametoFactMetaDataMap& parameterToFactMetaDataMap, QMap<QString,QStringList>& groupMembers);
-    QString mavTypeToString(MAV_TYPE vehicleTypeEnum);
+    void _correctGroupMemberships();
+    static QString _groupFromParameterName(const QString &name);
+    static QList<ValueDescPair> _sortedNumericPairs(const QJsonObject &obj, const QString &paramName);
+    static void _applyEnumValues(FactMetaData *metaData, const QJsonObject &valuesObj);
+    static void _applyBitmask(FactMetaData *metaData, const QJsonObject &bitmaskObj);
 
-    bool _parameterMetaDataLoaded;   ///< true: parameter meta data already loaded
-    QMap<QString, ParameterNametoFactMetaDataMap> _vehicleTypeToParametersMap; ///< Maps from a vehicle type to paramametertoFactMeta map>
+    QHash<QString, RawParamData> _rawParams;
 };
-
-#endif

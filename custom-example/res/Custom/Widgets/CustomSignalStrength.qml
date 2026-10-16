@@ -1,21 +1,8 @@
-/****************************************************************************
- *
- * (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- * @file
- *   @author Gus Grubba <gus@auterion.com>
- */
+import QtQuick
+import QtQuick.Controls
 
-import QtQuick                              2.11
-import QtQuick.Controls                     1.4
-
-import QGroundControl                       1.0
-import QGroundControl.Controls              1.0
-import QGroundControl.ScreenTools           1.0
-import QGroundControl.Palette               1.0
+import QGroundControl
+import QGroundControl.Controls
 
 Item {
     width:  size

@@ -1,14 +1,15 @@
-import QtQuick 2.3
-import QtQuick.Controls 1.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
-import QGroundControl.FactSystem 1.0
-import QGroundControl.FactControls 1.0
-import QGroundControl.Controls 1.0
-import QGroundControl.Controllers 1.0
-import QGroundControl.Palette 1.0
+import QGroundControl
+import QGroundControl.FactControls
+import QGroundControl.Controls
 
 Item {
-    anchors.fill:       parent
+    implicitWidth: mainLayout.implicitWidth
+    implicitHeight: mainLayout.implicitHeight
+    width: parent.width  // grows when Loader is wider than implicitWidth
 
     AirframeComponentController { id: controller; }
 
@@ -17,8 +18,11 @@ Item {
 
     property bool autoStartSet: sysAutoStartFact ? (sysAutoStartFact.value !== 0) : false
 
-    Column {
-        anchors.fill:       parent
+    ColumnLayout {
+        id: mainLayout
+        width: parent.width
+        spacing: 0
+
         VehicleSummaryRow {
             labelText: qsTr("System ID")
             valueText: sysIdFact ? sysIdFact.valueString : ""
@@ -34,12 +38,12 @@ Item {
 
         VehicleSummaryRow {
             labelText: qsTr("Firmware Version")
-            valueText: activeVehicle.firmwareMajorVersion === -1 ? qsTr("Unknown") : activeVehicle.firmwareMajorVersion + "." + activeVehicle.firmwareMinorVersion + "." + activeVehicle.firmwarePatchVersion + activeVehicle.firmwareVersionTypeString
+            valueText: globals.activeVehicle.firmwareMajorVersion === -1 ? qsTr("Unknown") : globals.activeVehicle.firmwareMajorVersion + "." + globals.activeVehicle.firmwareMinorVersion + "." + globals.activeVehicle.firmwarePatchVersion + globals.activeVehicle.firmwareVersionTypeString
         }
         VehicleSummaryRow {
-            visible: activeVehicle.firmwareCustomMajorVersion !== -1
+            visible: globals.activeVehicle.firmwareCustomMajorVersion !== -1
             labelText: qsTr("Custom Fw. Ver.")
-            valueText: activeVehicle.firmwareCustomMajorVersion + "." + activeVehicle.firmwareCustomMinorVersion + "." + activeVehicle.firmwareCustomPatchVersion
+            valueText: globals.activeVehicle.firmwareCustomMajorVersion + "." + globals.activeVehicle.firmwareCustomMinorVersion + "." + globals.activeVehicle.firmwareCustomPatchVersion
         }
     }
 }

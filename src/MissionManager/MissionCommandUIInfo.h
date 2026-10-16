@@ -1,42 +1,40 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
-#ifndef MissionCommandUIInfo_H
-#define MissionCommandUIInfo_H
+#include <QtCore/QString>
+#include <QtCore/QVariant>
 
-#include "QGCToolbox.h"
 #include "QGCMAVLink.h"
-
-#include <QString>
-#include <QVariant>
 
 class MissionCommandTree;
 class MissionCommandUIInfo;
-#ifdef UNITTEST_BUILD
+#ifdef QGC_UNITTEST_BUILD
 class MissionCommandTreeTest;
 #endif
 
-/// UI Information associated with a mission command (MAV_CMD) parameter
+/// \brief UI Information associated with a mission command (MAV_CMD) parameter
 ///
 /// MissionCommandParamInfo is used to automatically generate editing ui for a parameter associated with a MAV_CMD.
 ///
 /// The json format for a MissionCmdParamInfo object is:
 ///
-/// Key             Type    Default     Description
-/// label           string  required    Label for text field
-/// units           string              Units for value, should use FactMetaData units strings in order to get automatic translation
-/// default         double  0.0/NaN     Default value for param. If no default value specified and nanUnchanged == true, then defaultValue is NaN.
-/// decimalPlaces   int     7           Number of decimal places to show for value
-/// enumStrings     string              Strings to show in combo box for selection
-/// enumValues      string              Values associated with each enum string
-/// nanUnchanged    bool    false       True: value can be set to NaN to signal unchanged
+/// Key             Type    Default     QJsonValue::Type    Description
+/// label           string  required    String              Label for text field
+/// units           string              String              Units for value, should use FactMetaData units strings in order to get automatic translation
+/// default         double  0.0/NaN     Null                Default value for param. If no default value specified and nanUnchanged == true, then defaultValue is NaN.
+/// decimalPlaces   int     7           Double              Number of decimal places to show for value
+/// min             double  unbounded   Double              Minimum value for param
+/// max             double  unbounded   Double              Maximum value for param
+/// userMin         double  NaN         Null                Lower bound for user editing (NaN means not set)
+/// userMax         double  NaN         Null                Upper bound for user editing (NaN means not set)
+/// enumStrings     string              String              Strings to show in combo box for selection
+/// enumValues      string              String              Values associated with each enum string
+/// nanUnchanged    bool    false       Bool                True: value can be set to NaN to signal unchanged
+/// advanced        bool    false       Bool                True: mark parameter as advanced-only for UI selection
 ///
+/// Note on NaN usage:
+///     To indicate a NaN as a value in the json file use the value 'null' (with no quotes)
+///     Internally, these null values are converted to NaN when the json is read
+
 class MissionCmdParamInfo : public QObject {
 
     Q_OBJECT
@@ -55,6 +53,11 @@ public:
     Q_PROPERTY(int          param           READ param          CONSTANT)
     Q_PROPERTY(QString      units           READ units          CONSTANT)
     Q_PROPERTY(bool         nanUnchanged    READ nanUnchanged   CONSTANT)
+    Q_PROPERTY(double       min             READ min            CONSTANT)
+    Q_PROPERTY(double       max             READ max            CONSTANT)
+    Q_PROPERTY(double       userMin         READ userMin        CONSTANT)
+    Q_PROPERTY(double       userMax         READ userMax        CONSTANT)
+    Q_PROPERTY(bool         advanced        READ advanced       CONSTANT)
 
     int             decimalPlaces   (void) const { return _decimalPlaces; }
     double          defaultValue    (void) const { return _defaultValue; }
@@ -64,6 +67,11 @@ public:
     int             param           (void) const { return _param; }
     QString         units           (void) const { return _units; }
     bool            nanUnchanged    (void) const { return _nanUnchanged; }
+    double          min             (void) const { return _min; }
+    double          max             (void) const { return _max; }
+    double          userMin         (void) const { return _userMin; }
+    double          userMax         (void) const { return _userMax; }
+    bool            advanced        (void) const { return _advanced; }
 
 private:
     int             _decimalPlaces;
@@ -74,12 +82,17 @@ private:
     int             _param;
     QString         _units;
     bool            _nanUnchanged;
+    bool            _advanced;
+    double          _min;
+    double          _max;
+    double          _userMin;
+    double          _userMax;
 
     friend class MissionCommandTree;
     friend class MissionCommandUIInfo;
 };
 
-/// UI Information associated with a mission command (MAV_CMD)
+/// \brief UI Information associated with a mission command (MAV_CMD)
 ///
 /// MissionCommandUIInfo is used to automatically generate editing ui for a MAV_CMD. This object also supports the concept of only having a set of partial
 /// information for the command. This is used to create overrides of the base command information. For on override just specify the keys you want to modify
@@ -96,6 +109,8 @@ private:
 /// specifiesCoordinate     bool    false       true: Command specifies a lat/lon/alt coordinate
 /// specifiesAltitudeOnly   bool    false       true: Command specifies an altitude only (no coordinate)
 /// standaloneCoordinate    bool    false       true: Vehicle does not fly through coordinate associated with command (exampl: ROI)
+/// isTakeoffCommand        bool    false       true: Command specifies a takeoff command (TAEKOFF, VTOL_TAKEOFF, ...)
+/// isLandCommand           bool    false       true: Command specifies a land command (LAND, VTOL_LAND, ...)
 /// friendlyEdit            bool    false       true: Command supports friendly editing dialog, false: Command supports 'Show all values" style editing only
 /// category                string  Advanced    Category which this command belongs to
 /// paramRemove             string              Used by an override to remove params, example: "1,3" will remove params 1 and 3 on the override
@@ -118,6 +133,9 @@ public:
     Q_PROPERTY(bool     isStandaloneCoordinate  READ isStandaloneCoordinate CONSTANT)
     Q_PROPERTY(bool     specifiesCoordinate     READ specifiesCoordinate    CONSTANT)
     Q_PROPERTY(bool     specifiesAltitudeOnly   READ specifiesAltitudeOnly  CONSTANT)
+    Q_PROPERTY(bool     isLandCommand           READ isLandCommand          CONSTANT)
+    Q_PROPERTY(bool     isTakeoffCommand        READ isTakeoffCommand       CONSTANT)
+    Q_PROPERTY(bool     isLoiterCommand         READ isLoiterCommand        CONSTANT)
     Q_PROPERTY(int      command                 READ intCommand             CONSTANT)
 
     MAV_CMD command(void) const { return _command; }
@@ -131,6 +149,9 @@ public:
     bool    isStandaloneCoordinate  (void) const;
     bool    specifiesCoordinate     (void) const;
     bool    specifiesAltitudeOnly   (void) const;
+    bool    isLandCommand           (void) const;
+    bool    isTakeoffCommand        (void) const;
+    bool    isLoiterCommand         (void) const;
 
     /// Load the data in the object from the specified json
     ///     @param jsonObject Json object to load from
@@ -161,43 +182,50 @@ private:
     void _overrideInfo(MissionCommandUIInfo* uiInfo);
 
     MAV_CMD                         _command;
+    bool _commandIdLoaded = false;  ///< Only used to label load errors
     QMap<QString, QVariant>         _infoMap;
     QMap<int, MissionCmdParamInfo*> _paramInfoMap;
     QList<int>                      _paramRemoveList;
 
-    static const char* _categoryJsonKey;
-    static const char* _decimalPlacesJsonKey;
-    static const char* _defaultJsonKey;
-    static const char* _descriptionJsonKey;
-    static const char* _enumStringsJsonKey;
-    static const char* _enumValuesJsonKey;
-    static const char* _nanUnchangedJsonKey;
-    static const char* _friendlyNameJsonKey;
-    static const char* _friendlyEditJsonKey;
-    static const char* _idJsonKey;
-    static const char* _labelJsonKey;
-    static const char* _mavCmdInfoJsonKey;
-    static const char* _param1JsonKey;
-    static const char* _param2JsonKey;
-    static const char* _param3JsonKey;
-    static const char* _param4JsonKey;
-    static const char* _param5JsonKey;
-    static const char* _param6JsonKey;
-    static const char* _param7JsonKey;
-    static const char* _paramJsonKeyFormat;
-    static const char* _paramRemoveJsonKey;
-    static const char* _rawNameJsonKey;
-    static const char* _standaloneCoordinateJsonKey;
-    static const char* _specifiesCoordinateJsonKey;
-    static const char* _specifiesAltitudeOnlyJsonKey;
-    static const char* _unitsJsonKey;
-    static const char* _commentJsonKey;    
-    static const char* _advancedCategory;
+    static constexpr const char* _categoryJsonKey              = "category";
+    static constexpr const char* _decimalPlacesJsonKey         = "decimalPlaces";
+    static constexpr const char* _defaultJsonKey               = "default";
+    static constexpr const char* _descriptionJsonKey           = "description";
+    static constexpr const char* _enumStringsJsonKey           = "enumStrings";
+    static constexpr const char* _enumValuesJsonKey            = "enumValues";
+    static constexpr const char* _nanUnchangedJsonKey          = "nanUnchanged";
+    static constexpr const char* _advancedJsonKey              = "advanced";
+    static constexpr const char* _friendlyEditJsonKey          = "friendlyEdit";
+    static constexpr const char* _friendlyNameJsonKey          = "friendlyName";
+    static constexpr const char* _idJsonKey                    = "id";
+    static constexpr const char* _labelJsonKey                 = "label";
+    static constexpr const char* _mavCmdInfoJsonKey            = "mavCmdInfo";
+    static constexpr const char* _maxJsonKey                   = "max";
+    static constexpr const char* _minJsonKey                   = "min";
+    static constexpr const char* _userMaxJsonKey               = "userMax";
+    static constexpr const char* _userMinJsonKey               = "userMin";
+    static constexpr const char* _param1JsonKey                = "param1";
+    static constexpr const char* _param2JsonKey                = "param2";
+    static constexpr const char* _param3JsonKey                = "param3";
+    static constexpr const char* _param4JsonKey                = "param4";
+    static constexpr const char* _param5JsonKey                = "param5";
+    static constexpr const char* _param6JsonKey                = "param6";
+    static constexpr const char* _param7JsonKey                = "param7";
+    static constexpr const char* _paramJsonKeyFormat           = "param%1";
+    static constexpr const char* _paramRemoveJsonKey           = "paramRemove";
+    static constexpr const char* _rawNameJsonKey               = "rawName";
+    static constexpr const char* _standaloneCoordinateJsonKey  = "standaloneCoordinate";
+    static constexpr const char* _specifiesCoordinateJsonKey   = "specifiesCoordinate";
+    static constexpr const char* _specifiesAltitudeOnlyJsonKey = "specifiesAltitudeOnly";
+    static constexpr const char* _isLandCommandJsonKey         = "isLandCommand";
+    static constexpr const char* _isTakeoffCommandJsonKey      = "isTakeoffCommand";
+    static constexpr const char* _isLoiterCommandJsonKey       = "isLoiterCommand";
+    static constexpr const char* _unitsJsonKey                 = "units";
+    static constexpr const char* _commentJsonKey               = "comment";
+    static constexpr const char* _advancedCategory             = "Advanced";
 
-    friend class MissionCommandTree;    
-#ifdef UNITTEST_BUILD
+    friend class MissionCommandTree;
+#ifdef QGC_UNITTEST_BUILD
     friend class MissionCommandTreeTest;
 #endif
 };
-
-#endif

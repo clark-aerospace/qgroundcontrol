@@ -1,75 +1,89 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
-/// @file
-///     @author Don Gagne <don@thegagnes.com>
-
 #include "FirmwarePluginManager.h"
 #include "FirmwarePlugin.h"
+#include "FirmwarePluginFactory.h"
+#include "QGCLoggingCategory.h"
 
-FirmwarePluginManager::FirmwarePluginManager(QGCApplication* app, QGCToolbox* toolbox)
-    : QGCTool(app, toolbox)
-    , _genericFirmwarePlugin(nullptr)
+#include <QtCore/QGlobalStatic>
+
+QGC_LOGGING_CATEGORY(FirmwarePluginManagerLog, "FirmwarePlugin.FirmwarePluginManager");
+
+Q_GLOBAL_STATIC(FirmwarePluginManager, _firmwarePluginManagerInstance);
+
+FirmwarePluginManager::FirmwarePluginManager(QObject *parent)
+    : QObject(parent)
 {
-
+    // qCDebug(FirmwarePluginManagerLog) << Q_FUNC_INFO << this;
 }
 
 FirmwarePluginManager::~FirmwarePluginManager()
 {
-    delete _genericFirmwarePlugin;
+    // qCDebug(FirmwarePluginManagerLog) << Q_FUNC_INFO << this;
 }
 
-QList<MAV_AUTOPILOT> FirmwarePluginManager::supportedFirmwareTypes(void)
+FirmwarePluginManager *FirmwarePluginManager::instance()
 {
-    if (_supportedFirmwareTypes.isEmpty()) {
-        QList<FirmwarePluginFactory*> factoryList = FirmwarePluginFactoryRegister::instance()->pluginFactories();
-        for (int i = 0; i < factoryList.count(); i++) {
-            _supportedFirmwareTypes.append(factoryList[i]->supportedFirmwareTypes());
+    return _firmwarePluginManagerInstance();
+}
+
+QList<QGCMAVLink::FirmwareClass_t> FirmwarePluginManager::supportedFirmwareClasses()
+{
+    if (_supportedFirmwareClasses.isEmpty()) {
+        const QList<FirmwarePluginFactory*> factoryList = FirmwarePluginFactoryRegister::instance()->pluginFactories();
+        for (const FirmwarePluginFactory *factory: factoryList) {
+            _supportedFirmwareClasses.append(factory->supportedFirmwareClasses());
         }
-        _supportedFirmwareTypes.append(MAV_AUTOPILOT_GENERIC);
+        _supportedFirmwareClasses.append(QGCMAVLink::FirmwareClassGeneric);
     }
-    return _supportedFirmwareTypes;
+
+    return _supportedFirmwareClasses;
 }
 
-QList<MAV_TYPE> FirmwarePluginManager::supportedVehicleTypes(MAV_AUTOPILOT firmwareType)
+bool FirmwarePluginManager::firmwareClassSupported(QGCMAVLink::FirmwareClass_t firmwareClass)
 {
-    QList<MAV_TYPE> vehicleTypes;
+    return supportedFirmwareClasses().contains(firmwareClass);
+}
 
-    FirmwarePluginFactory* factory = _findPluginFactory(firmwareType);
+bool FirmwarePluginManager::singleFirmwareSupport()
+{
+    return supportedFirmwareClasses().count() == 1;
+}
+
+bool FirmwarePluginManager::singleVehicleSupport()
+{
+    const QList<QGCMAVLink::FirmwareClass_t> firmwareClasses = supportedFirmwareClasses();
+    return (firmwareClasses.count() == 1) && (supportedVehicleClasses(firmwareClasses[0]).count() == 1);
+}
+
+QList<QGCMAVLink::VehicleClass_t> FirmwarePluginManager::supportedVehicleClasses(QGCMAVLink::FirmwareClass_t firmwareClass)
+{
+    QList<QGCMAVLink::VehicleClass_t> vehicleClasses;
+    const FirmwarePluginFactory *const factory = _findPluginFactory(firmwareClass);
 
     if (factory) {
-        vehicleTypes = factory->supportedVehicleTypes();
-    } else if (firmwareType == MAV_AUTOPILOT_GENERIC) {
-        vehicleTypes << MAV_TYPE_FIXED_WING << MAV_TYPE_QUADROTOR << MAV_TYPE_VTOL_QUADROTOR << MAV_TYPE_GROUND_ROVER << MAV_TYPE_SUBMARINE;
+        vehicleClasses = factory->supportedVehicleClasses();
+    } else if (firmwareClass == QGCMAVLink::FirmwareClassGeneric) {
+        // Generic supports all specific vehicle class
+        vehicleClasses = QGCMAVLink::allVehicleClasses();
+        (void) vehicleClasses.removeOne(QGCMAVLink::VehicleClassGeneric);
     } else {
-        qWarning() << "Request for unknown firmware plugin factory" << firmwareType;
+        qCWarning(FirmwarePluginManagerLog) << "Request for unknown firmware plugin factory" << firmwareClass;
     }
 
-    return vehicleTypes;
+    return vehicleClasses;
 }
 
-FirmwarePlugin* FirmwarePluginManager::firmwarePluginForAutopilot(MAV_AUTOPILOT firmwareType, MAV_TYPE vehicleType)
+FirmwarePlugin *FirmwarePluginManager::firmwarePluginForAutopilot(MAV_AUTOPILOT firmwareType, MAV_TYPE vehicleType)
 {
-    FirmwarePluginFactory*  factory = _findPluginFactory(firmwareType);
-    FirmwarePlugin*         plugin = nullptr;
+    FirmwarePluginFactory *const factory = _findPluginFactory(firmwareType);
+    FirmwarePlugin *plugin = nullptr;
 
     if (factory) {
         plugin = factory->firmwarePluginForAutopilot(firmwareType, vehicleType);
-    } else if (firmwareType != MAV_AUTOPILOT_GENERIC) {
-        qWarning() << "Request for unknown firmware plugin factory" << firmwareType;
     }
 
     if (!plugin) {
-        // Default plugin fallback
         if (!_genericFirmwarePlugin) {
-            _genericFirmwarePlugin = new FirmwarePlugin;
+            _genericFirmwarePlugin = new FirmwarePlugin(this);
         }
         plugin = _genericFirmwarePlugin;
     }
@@ -77,14 +91,12 @@ FirmwarePlugin* FirmwarePluginManager::firmwarePluginForAutopilot(MAV_AUTOPILOT 
     return plugin;
 }
 
-FirmwarePluginFactory* FirmwarePluginManager::_findPluginFactory(MAV_AUTOPILOT firmwareType)
+FirmwarePluginFactory *FirmwarePluginManager::_findPluginFactory(QGCMAVLink::FirmwareClass_t firmwareClass)
 {
-    QList<FirmwarePluginFactory*> factoryList = FirmwarePluginFactoryRegister::instance()->pluginFactories();
+    const QList<FirmwarePluginFactory*> factoryList = FirmwarePluginFactoryRegister::instance()->pluginFactories();
 
-    // Find the plugin which supports this vehicle
-    for (int i=0; i<factoryList.count(); i++) {
-        FirmwarePluginFactory* factory = factoryList[i];
-        if (factory->supportedFirmwareTypes().contains(firmwareType)) {
+    for (FirmwarePluginFactory *factory: factoryList) {
+        if (factory->supportedFirmwareClasses().contains(firmwareClass)) {
             return factory;
         }
     }

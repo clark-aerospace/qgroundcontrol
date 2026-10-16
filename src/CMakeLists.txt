@@ -1,191 +1,224 @@
+# ============================================================================
+# QGroundControl Module Library
+# ============================================================================
 
-include_directories(
-	.
-	${CMAKE_CURRENT_BINARY_DIR}
-	${Qt5Location_PRIVATE_INCLUDE_DIRS}
-	VideoStreaming
+qt_add_library(QGroundControlModule STATIC)
+
+# ----------------------------------------------------------------------------
+# QML Resources
+# ----------------------------------------------------------------------------
+set_source_files_properties(MainWindow/MainWindow.qml
+    PROPERTIES
+        QT_RESOURCE_ALIAS MainWindow.qml
 )
 
-set(EXTRA_SRC)
-
-if(MOBILE)
-	list(APPEND EXTRA_SRC
-		MobileScreenMgr.cc
-	)
-endif()
-if(GST_FOUND)
-	# TODO: Transform those in targets.
-	list(APPEND EXTRA_SRC
-		Taisync/TaisyncManager.cc
-		Taisync/TaisyncHandler.cc
-		Taisync/TaisyncSettings.cc
-		Microhard/MicrohardManager.cc
-		Microhard/MicrohardHandler.cc
-		Microhard/MicrohardSettings.cc
-	)
-	if(ANDROID) # Should also be expanded to iOS
-		list(APPEND EXTRA_SRC
-			src/Taisync/TaisyncTelemetry.cc
-			src/Taisync/TaisyncVideoReceiver.cc
-		)
-	endif()
-endif()
-
-if(BUILD_TESTING)
-
-	add_custom_target(check
-		COMMAND ctest --output-on-failure .
-		USES_TERMINAL
-	)
-
-	function (add_qgc_test test_name)
-		add_test(
-			NAME ${test_name}
-			COMMAND $<TARGET_FILE:QGroundControl> --unittest:${test_name}
-		)
-		add_dependencies(check QGroundControl)
-	endfunction()
-
-	add_subdirectory(qgcunittest)
-
-	add_qgc_test(CameraCalcTest)
-	add_qgc_test(CameraSectionTest)
-	add_qgc_test(CorridorScanComplexItemTest)
-	add_qgc_test(FactSystemTestGeneric)
-	add_qgc_test(FactSystemTestPX4)
-	add_qgc_test(FileDialogTest)
-	add_qgc_test(FileManagerTest)
-	add_qgc_test(FlightGearUnitTest)
-	add_qgc_test(GeoTest)
-	add_qgc_test(LinkManagerTest)
-	add_qgc_test(LogDownloadTest)
-	add_qgc_test(MessageBoxTest)
-	add_qgc_test(MissionCommandTreeTest)
-	add_qgc_test(MissionControllerTest)
-	add_qgc_test(MissionItemTest)
-	add_qgc_test(MissionManagerTest)
-	add_qgc_test(MissionSettingsTest)
-	add_qgc_test(ParameterManagerTest)
-	add_qgc_test(PlanMasterControllerTest)
-	add_qgc_test(QGCMapPolygonTest)
-	add_qgc_test(QGCMapPolylineTest)
-	add_qgc_test(RadioConfigTest)
-	add_qgc_test(SendMavCommandTest)
-	add_qgc_test(SimpleMissionItemTest)
-	add_qgc_test(SpeedSectionTest)
-	add_qgc_test(StructureScanComplexItemTest)
-	add_qgc_test(SurveyComplexItemTest)
-	add_qgc_test(TCPLinkTest)
-	add_qgc_test(TransectStyleComplexItemTest)
-
-endif()
-
-add_library(qgc
-
-	${EXTRA_SRC}
-
-	CmdLineOptParser.cc
-	JsonHelper.cc
-	KMLFileHelper.cc
-	LogCompressor.cc
-	main.cc
-	QGCApplication.cc
-	QGC.cc
-	QGCComboBox.cc
-	QGCDockWidget.cc
-	QGCFileDownload.cc
-	QGCGeo.cc
-	QGCLoggingCategory.cc
-	QGCMapPalette.cc
-	QGCPalette.cc
-	QGCQGeoCoordinate.cc
-	QGCTemporaryFile.cc
-	QGCToolbox.cc
-	RunGuard.cc
-	ShapeFileHelper.cc
-	SHPFileHelper.cc
-	TerrainTile.cc
-
-	UTM.cpp
+qt_add_qml_module(QGroundControlModule
+    URI QGroundControl
+    VERSION 1.0
+    RESOURCE_PREFIX /qml
+    QML_FILES
+        MainWindow/MainWindow.qml
+        MainWindow/MainWindowSavedState.qml
+    IMPORTS
+        QGC
+    NO_PLUGIN
 )
 
-set_source_files_properties(QGCApplication.cc PROPERTIES COMPILE_DEFINITIONS GIT_VERSION="${git_tag}")
+if(IOS)
+    set(QGC_NO_SERIAL_LINK ON CACHE BOOL "Disable serial port communication" FORCE)
+endif()
 
-add_subdirectory(ui)
+# ============================================================================
+# Subdirectories
+# ============================================================================
 
-add_subdirectory(Airmap)
+# Core subsystems
+add_subdirectory(ADSB)
 add_subdirectory(AnalyzeView)
-add_subdirectory(api)
-add_subdirectory(Audio)
+add_subdirectory(API)
 add_subdirectory(AutoPilotPlugins)
 add_subdirectory(Camera)
-add_subdirectory(comm)
+add_subdirectory(Comms)
 add_subdirectory(FactSystem)
 add_subdirectory(FirmwarePlugin)
-add_subdirectory(FlightDisplay)
+add_subdirectory(FlyView)
 add_subdirectory(FlightMap)
+add_subdirectory(GeoMap)
 add_subdirectory(FollowMe)
+add_subdirectory(Gimbal)
 add_subdirectory(GPS)
+add_subdirectory(Utilities)
+# Must be added after Utilities — links QGCLogging/QGCFileSystem/QGCNetwork/QGCCompression.
+add_subdirectory(LogManager)
 add_subdirectory(Joystick)
+add_subdirectory(MAVLink)
 add_subdirectory(MissionManager)
 add_subdirectory(PlanView)
-add_subdirectory(PositionManager)
 add_subdirectory(QmlControls)
-add_subdirectory(QtLocationPlugin)
 add_subdirectory(Settings)
 add_subdirectory(Terrain)
-add_subdirectory(uas)
+add_subdirectory(AppSettings)
+add_subdirectory(FirstRunPromptDialogs)
+add_subdirectory(Toolbar)
 add_subdirectory(Vehicle)
-add_subdirectory(VehicleSetup)
-add_subdirectory(VideoStreaming)
-add_subdirectory(ViewWidgets)
+add_subdirectory(VideoManager)
+add_subdirectory(Viewer3D)
 
-target_link_libraries(qgc
-	PRIVATE
-		shp
+# Platform-specific
+add_subdirectory(Android)
 
-	PUBLIC
-		Qt5::QuickWidgets
-		Qt5::Widgets
+# Qt plugins
+add_subdirectory(QtLocationPlugin)
 
-		Airmap
-		AnalyzeView
-		api
-		Audio
-		AutoPilotPlugins
-		Camera
-		comm
-		FactSystem
-		FirmwarePlugin
-		FlightDisplay
-		FlightMap
-		FollowMe
-		gps
-		Joystick
-		MissionManager
-		PositionManager
-		QmlControls
-		QtLocationPlugin
-		Settings
-		Terrain
-		uas
-		ui
-		Vehicle
-		VehicleSetup
-		VideoStreaming
-		ViewWidgets
+# ============================================================================
+# Main Application Sources
+# ============================================================================
+
+target_sources(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        main.cc
+        pch.h
+        QGCApplication.cc
+        QGCApplication.h
 )
 
-if(BUILD_TESTING)
-	target_link_libraries(qgc PUBLIC qgcunittest)
+
+# ----------------------------------------------------------------------------
+# Include Directories
+# ----------------------------------------------------------------------------
+target_include_directories(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_BINARY_DIR}
+)
+
+# ============================================================================
+# Link Libraries
+# ============================================================================
+
+target_link_libraries(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        # Qt6 Core
+        Qt6::Graphs
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::CorePrivate
+        Qt6::Gui
+        Qt6::GuiPrivate
+        Qt6::HttpServer
+        Qt6::Network
+        Qt6::StateMachine
+        Qt6::Svg
+        Qt6::Xml
+
+        # Qt6 QML/Quick
+        Qt6::Qml
+        Qt6::QmlIntegration
+        Qt6::Quick
+        Qt6::Quick3D
+        Qt6::QuickControls2
+        Qt6::QuickVectorImage
+
+        # Qt6 Location
+        Qt6::Location
+        Qt6::LocationPrivate
+        Qt6::Positioning
+        Qt6::PositioningPrivate
+        Qt6::Sql
+
+        # Qt6 Multimedia
+        Qt6::Multimedia
+        Qt6::MultimediaQuickPrivate
+
+        # QGC Modules
+        AnalyzeViewModule
+        AppSettingsModule
+        AutoPilotPluginsCommonModule
+        FactControlsModule
+        FirstRunPromptDialogsModule
+        FlyViewModule
+        FlightMapModule
+        GeoMapModule
+        PlanViewModule
+        QGroundControlControlsModule
+        QGroundControlModule
+        ToolbarModule
+        VehicleSetupModule
+)
+
+# ----------------------------------------------------------------------------
+# Optional/Conditional Modules
+# ----------------------------------------------------------------------------
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE AutoPilotPluginsAPMModule)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE AutoPilotPluginsPX4Module)
+
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Viewer3DModule)
+
+# ============================================================================
+# Compile Definitions
+# ============================================================================
+
+# Application metadata (version macros provided via generated qgc_version.h)
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        $<$<NOT:$<BOOL:${QGC_STABLE_BUILD}>>:QGC_DAILY_BUILD>
+)
+
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        QT_DISABLE_DEPRECATED_UP_TO=${QGC_QT_DISABLE_DEPRECATED_UP_TO}
+        QT_ENABLE_STRICT_MODE_UP_TO=${QGC_QT_ENABLE_STRICT_MODE_UP_TO}
+)
+
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        $<$<CONFIG:Release>:QT_MESSAGELOGCONTEXT>
+        $<$<AND:$<NOT:$<CONFIG:Release>>,$<BOOL:${QGC_DEBUG_QML}>>:QT_QML_DEBUG>
+)
+
+# ============================================================================
+# Target Properties
+# ============================================================================
+
+set_target_properties(${CMAKE_PROJECT_NAME}
+    PROPERTIES
+        QT_RESOURCE_PREFIX "/qml"
+        OUTPUT_NAME ${CMAKE_PROJECT_NAME}
+)
+
+# Helper STATIC libs declare their own tailored PCH; REUSE_FROM is impractical
+# because clang's PCH validator requires matching link-set-derived defines.
+target_precompile_headers(${CMAKE_PROJECT_NAME} PRIVATE pch.h)
+
+# Side-effect-free (no qt_add_qml_module / qt_add_resources / static-init registration) — link-interface pruning is safe.
+set_target_properties(QGCFileSystem QGCSensors QGCAudio
+    PROPERTIES OPTIMIZE_DEPENDENCIES ON
+)
+
+# ============================================================================
+# Custom Build Configuration
+# ============================================================================
+
+if(QGC_CUSTOM_BUILD)
+    if(CUSTOM_QT_COMPONENTS)
+        find_package(Qt6 REQUIRED COMPONENTS ${CUSTOM_QT_COMPONENTS})
+    endif()
+
+    if(CUSTOM_SOURCES)
+        target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${CUSTOM_SOURCES})
+    endif()
+
+    if(CUSTOM_LIBRARIES)
+        target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${CUSTOM_LIBRARIES})
+    endif()
+
+    if(CUSTOM_INCLUDE_DIRECTORIES)
+        target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CUSTOM_INCLUDE_DIRECTORIES})
+    endif()
+
+    if(CUSTOM_DEFINITIONS)
+        target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE ${CUSTOM_DEFINITIONS})
+    endif()
+
+    message(STATUS "QGC: Custom build configuration applied")
 endif()
-
-target_include_directories(qgc
-	PUBLIC
-		${CMAKE_CURRENT_SOURCE_DIR}
-		${CMAKE_CURRENT_BINARY_DIR}/ui/ui_autogen/include # HACK: AUTOUIC paths not inheriting?
-		${CMAKE_CURRENT_BINARY_DIR}/ui/ui_autogen/include_Debug
-		${CMAKE_CURRENT_BINARY_DIR}/qgc_autogen/include # HACK: AUTOUIC paths not inheriting?
-		${CMAKE_CURRENT_BINARY_DIR}/qgc_autogen/include_Debug
-)
-

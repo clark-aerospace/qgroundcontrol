@@ -1,36 +1,21 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QVariantList>
+#include <QtQmlIntegration/QtQmlIntegration>
 
-#ifndef PX4SimpleFlightModesController_H
-#define PX4SimpleFlightModesController_H
-
-#include <QObject>
-#include <QQuickItem>
-#include <QList>
-#include <QStringList>
-
-#include "UASInterface.h"
-#include "AutoPilotPlugin.h"
 #include "FactPanelController.h"
-#include "Vehicle.h"
 
-/// MVC Controller for PX4SimpleFlightModes.qml
+/// \brief MVC Controller for PX4SimpleFlightModes.qml
+///
 class PX4SimpleFlightModesController : public FactPanelController
 {
     Q_OBJECT
-    
+    QML_ELEMENT
 public:
     PX4SimpleFlightModesController(void);
-    
+
     Q_PROPERTY(int          activeFlightMode    READ activeFlightMode       NOTIFY activeFlightModeChanged)
-    Q_PROPERTY(int          channelCount        MEMBER _channelCount        CONSTANT)
+    Q_PROPERTY(int          channelCount        MEMBER _channelCount        NOTIFY channelCountChanged)
     Q_PROPERTY(QVariantList rcChannelValues     MEMBER _rcChannelValues     NOTIFY rcChannelValuesChanged)
 
     int activeFlightMode(void) const { return _activeFlightMode; }
@@ -39,14 +24,13 @@ signals:
     void activeFlightModeChanged(int activeFlightMode);
     void channelOptionEnabledChanged(void);
     void rcChannelValuesChanged(void);
-    
+    void channelCountChanged();
+
 private slots:
-    void _rcChannelsChanged(int channelCount, int pwmValues[Vehicle::cMaxRcChannels]);
-    
+    void channelValuesChanged(QVector<int> pwmValues);
+
 private:
     int             _activeFlightMode;
-    int             _channelCount;
+    int             _channelCount = 0;
     QVariantList    _rcChannelValues;
 };
-
-#endif

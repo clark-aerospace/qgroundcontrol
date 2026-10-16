@@ -1,80 +1,86 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QObject>
+#include <QtCore/QTimer>
+#include <QtCore/QVariantList>
+#include <QtQmlIntegration/QtQmlIntegration>
 
-#ifndef JoystickManager_H
-#define JoystickManager_H
+class Joystick;
+class JoystickManagerSettings;
+class Vehicle;
 
-#include "QGCLoggingCategory.h"
-#include "Joystick.h"
-#include "MultiVehicleManager.h"
-#include "QGCToolbox.h"
-
-#include <QVariantList>
-
-Q_DECLARE_LOGGING_CATEGORY(JoystickManagerLog)
-
-class JoystickManager : public QGCTool
+class JoystickManager : public QObject
 {
     Q_OBJECT
-    
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+    Q_MOC_INCLUDE("Joystick.h")
+
+    /// List of available joystick names
+    ///     Note: The active joystick name may be not in this list if the joystick is not currently connected
+    Q_PROPERTY(QStringList  availableJoystickNames READ availableJoystickNames NOTIFY availableJoystickNamesChanged)
+
+    Q_PROPERTY(Joystick *activeJoystick READ activeJoystick NOTIFY activeJoystickChanged)
+    Q_PROPERTY(bool activeJoystickEnabledForActiveVehicle READ activeJoystickEnabledForActiveVehicle WRITE setActiveJoystickEnabledForActiveVehicle NOTIFY activeJoystickEnabledForActiveVehicleChanged)
+
+    /// Number of connected joysticks
+    Q_PROPERTY(int joystickCount READ joystickCount NOTIFY availableJoystickNamesChanged)
+
+#ifdef QGC_UNITTEST_BUILD
+    friend class JoystickManagerTest;
+#endif
+
 public:
-    JoystickManager(QGCApplication* app, QGCToolbox* toolbox);
-    ~JoystickManager();
+    explicit JoystickManager(QObject *parent = nullptr);
+    ~JoystickManager() override;
 
-    /// List of available joysticks
-    Q_PROPERTY(QVariantList joysticks READ joysticks NOTIFY availableJoysticksChanged)
-    Q_PROPERTY(QStringList  joystickNames READ joystickNames NOTIFY availableJoysticksChanged)
-    
-    /// Active joystick
-    Q_PROPERTY(Joystick* activeJoystick READ activeJoystick WRITE setActiveJoystick NOTIFY activeJoystickChanged)
-    Q_PROPERTY(QString activeJoystickName READ activeJoystickName WRITE setActiveJoystickName NOTIFY activeJoystickNameChanged)
-    
-    QVariantList joysticks();
-    QStringList joystickNames(void);
-    
-    Joystick* activeJoystick(void);
-    void setActiveJoystick(Joystick* joystick);
-    
-    QString activeJoystickName(void);
-    void setActiveJoystickName(const QString& name);
+    static JoystickManager *instance();
 
-    void restartJoystickCheckTimer(void);
+    QStringList availableJoystickNames() const { return _name2JoystickMap.keys(); }
+    int joystickCount() const { return _name2JoystickMap.count(); }
 
-    // Override from QGCTool
-    virtual void setToolbox(QGCToolbox *toolbox);
+    Joystick *activeJoystick();
+    bool activeJoystickEnabledForActiveVehicle() const;
+    void setActiveJoystickEnabledForActiveVehicle(bool enabled);
+
+    /// Get all joysticks in a linked group
+    /// Returns empty list if groupId is empty or no matches found
+    Q_INVOKABLE QStringList linkedGroupMembers(const QString &groupId) const;
+
+    /// Get joystick by name (returns nullptr if not found)
+    Q_INVOKABLE Joystick *joystickByName(const QString &name) const;
+
+signals:
+    void activeJoystickChanged(Joystick *joystick);
+    void activeJoystickEnabledForActiveVehicleChanged();
+    void availableJoystickNamesChanged();
 
 public slots:
     void init();
 
-signals:
-    void activeJoystickChanged(Joystick* joystick);
-    void activeJoystickNameChanged(const QString& name);
-    void availableJoysticksChanged(void);
-    void updateAvailableJoysticksSignal();
-
 private slots:
-    void _updateAvailableJoysticks(void);
-    
-private:
-    void _setActiveJoystickFromSettings(void);
-    
-private:
-    Joystick*                   _activeJoystick;
-    QMap<QString, Joystick*>    _name2JoystickMap;
-    MultiVehicleManager*        _multiVehicleManager;
-    
-    static const char * _settingsGroup;
-    static const char * _settingsKeyActiveJoystick;
+    /// Checks for added or removed joysticks and updates the internal map accordingly
+    void _checkForAddedOrRemovedJoysticks();
+    void _activeVehicleChanged(Vehicle *activeVehicle);
+    void _setActiveJoystickByName(const QString &name);
 
-    int _joystickCheckTimerCounter;
-    QTimer _joystickCheckTimer;
+    // SDL event handlers (called via QMetaObject::invokeMethod from sdlEventWatcher)
+    void _handleUpdateComplete(int instanceId);
+    void _handleBatteryUpdated(int instanceId);
+    void _handleGamepadRemapped(int instanceId);
+    void _handleTouchpadEvent(int instanceId, int touchpad, int finger, bool down, float x, float y, float pressure);
+    void _handleSensorUpdate(int instanceId, int sensor, float x, float y, float z);
+
+private:
+    void _setActiveJoystickFromSettings();
+    void _setActiveJoystick(Joystick *joystick);
+    bool _joystickEnabledForVehicle(Vehicle *vehicle) const;
+    void _setJoystickEnabledForVehicle(Vehicle *vehicle, bool enabled);
+    Joystick *_findJoystickByInstanceId(int instanceId);
+    void _updatePollingTimer();
+
+    JoystickManagerSettings *_joystickManagerSettings = nullptr;
+    Joystick *_activeJoystick = nullptr;
+    QMap<QString, Joystick*> _name2JoystickMap;
+    QTimer _pollTimer;
 };
-
-#endif

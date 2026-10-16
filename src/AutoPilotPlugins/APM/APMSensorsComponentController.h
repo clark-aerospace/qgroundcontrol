@@ -1,128 +1,114 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
-
-#ifndef APMSensorsComponentController_H
-#define APMSensorsComponentController_H
-
-#include <QObject>
-
-#include "UASInterface.h"
 #include "FactPanelController.h"
-#include "QGCLoggingCategory.h"
-#include "APMSensorsComponent.h"
-#include "APMCompassCal.h"
+#include "QGCMAVLink.h"
+#include "QGCMAVLinkTypes.h"
 
-Q_DECLARE_LOGGING_CATEGORY(APMSensorsComponentControllerLog)
-Q_DECLARE_LOGGING_CATEGORY(APMSensorsComponentControllerVerboseLog)
+#include <QtCore/QObject>
+#include <QtQuick/QQuickItem>
+#include <QtQmlIntegration/QtQmlIntegration>
 
-/// Sensors Component MVC Controller for SensorsComponent.qml.
+class APMSensorsComponent;
+class LinkInterface;
+
+/// \brief Sensors Component MVC Controller for SensorsComponent.qml.
+///
 class APMSensorsComponentController : public FactPanelController
 {
     Q_OBJECT
-    
+    QML_ELEMENT
+    Q_PROPERTY(QQuickItem* statusLog                        MEMBER _statusLog)
+    Q_PROPERTY(QQuickItem* progressBar                      MEMBER _progressBar)
+
+    Q_PROPERTY(QQuickItem* nextButton                       MEMBER _nextButton)
+    Q_PROPERTY(QQuickItem* cancelButton                     MEMBER _cancelButton)
+    Q_PROPERTY(QQuickItem* orientationCalAreaHelpText       MEMBER _orientationCalAreaHelpText)
+
+    Q_PROPERTY(bool compassSetupNeeded                      READ compassSetupNeeded                         NOTIFY setupNeededChanged)
+    Q_PROPERTY(bool accelSetupNeeded                        READ accelSetupNeeded                           NOTIFY setupNeededChanged)
+
+    Q_PROPERTY(bool showOrientationCalArea                  MEMBER _showOrientationCalArea                  NOTIFY showOrientationCalAreaChanged)
+
+    Q_PROPERTY(bool orientationCalDownSideDone              MEMBER _orientationCalDownSideDone              NOTIFY orientationCalSidesDoneChanged)
+    Q_PROPERTY(bool orientationCalUpsideDownSideDone        MEMBER _orientationCalUpsideDownSideDone        NOTIFY orientationCalSidesDoneChanged)
+    Q_PROPERTY(bool orientationCalLeftSideDone              MEMBER _orientationCalLeftSideDone              NOTIFY orientationCalSidesDoneChanged)
+    Q_PROPERTY(bool orientationCalRightSideDone             MEMBER _orientationCalRightSideDone             NOTIFY orientationCalSidesDoneChanged)
+    Q_PROPERTY(bool orientationCalNoseDownSideDone          MEMBER _orientationCalNoseDownSideDone          NOTIFY orientationCalSidesDoneChanged)
+    Q_PROPERTY(bool orientationCalTailDownSideDone          MEMBER _orientationCalTailDownSideDone          NOTIFY orientationCalSidesDoneChanged)
+
+    Q_PROPERTY(bool orientationCalDownSideVisible           MEMBER _orientationCalDownSideVisible           NOTIFY orientationCalSidesVisibleChanged)
+    Q_PROPERTY(bool orientationCalUpsideDownSideVisible     MEMBER _orientationCalUpsideDownSideVisible     NOTIFY orientationCalSidesVisibleChanged)
+    Q_PROPERTY(bool orientationCalLeftSideVisible           MEMBER _orientationCalLeftSideVisible           NOTIFY orientationCalSidesVisibleChanged)
+    Q_PROPERTY(bool orientationCalRightSideVisible          MEMBER _orientationCalRightSideVisible          NOTIFY orientationCalSidesVisibleChanged)
+    Q_PROPERTY(bool orientationCalNoseDownSideVisible       MEMBER _orientationCalNoseDownSideVisible       NOTIFY orientationCalSidesVisibleChanged)
+    Q_PROPERTY(bool orientationCalTailDownSideVisible       MEMBER _orientationCalTailDownSideVisible       NOTIFY orientationCalSidesVisibleChanged)
+
+    Q_PROPERTY(bool orientationCalDownSideInProgress        MEMBER _orientationCalDownSideInProgress        NOTIFY orientationCalSidesInProgressChanged)
+    Q_PROPERTY(bool orientationCalUpsideDownSideInProgress  MEMBER _orientationCalUpsideDownSideInProgress  NOTIFY orientationCalSidesInProgressChanged)
+    Q_PROPERTY(bool orientationCalLeftSideInProgress        MEMBER _orientationCalLeftSideInProgress        NOTIFY orientationCalSidesInProgressChanged)
+    Q_PROPERTY(bool orientationCalRightSideInProgress       MEMBER _orientationCalRightSideInProgress       NOTIFY orientationCalSidesInProgressChanged)
+    Q_PROPERTY(bool orientationCalNoseDownSideInProgress    MEMBER _orientationCalNoseDownSideInProgress    NOTIFY orientationCalSidesInProgressChanged)
+    Q_PROPERTY(bool orientationCalTailDownSideInProgress    MEMBER _orientationCalTailDownSideInProgress    NOTIFY orientationCalSidesInProgressChanged)
+
+    Q_PROPERTY(bool orientationCalDownSideRotate            MEMBER _orientationCalDownSideRotate            NOTIFY orientationCalSidesRotateChanged)
+    Q_PROPERTY(bool orientationCalUpsideDownSideRotate      MEMBER _orientationCalUpsideDownSideRotate      NOTIFY orientationCalSidesRotateChanged)
+    Q_PROPERTY(bool orientationCalLeftSideRotate            MEMBER _orientationCalLeftSideRotate            NOTIFY orientationCalSidesRotateChanged)
+    Q_PROPERTY(bool orientationCalRightSideRotate           MEMBER _orientationCalRightSideRotate           NOTIFY orientationCalSidesRotateChanged)
+    Q_PROPERTY(bool orientationCalNoseDownSideRotate        MEMBER _orientationCalNoseDownSideRotate        NOTIFY orientationCalSidesRotateChanged)
+    Q_PROPERTY(bool orientationCalTailDownSideRotate        MEMBER _orientationCalTailDownSideRotate        NOTIFY orientationCalSidesRotateChanged)
+
+    Q_PROPERTY(bool waitingForCancel                        MEMBER _waitingForCancel                        NOTIFY waitingForCancelChanged)
+
+    Q_PROPERTY(bool calibrationActive                       READ calibrationActive                          NOTIFY calibrationActiveChanged)
+
+    Q_PROPERTY(bool compass1CalSucceeded                    READ compass1CalSucceeded                       NOTIFY compass1CalSucceededChanged)
+    Q_PROPERTY(bool compass2CalSucceeded                    READ compass2CalSucceeded                       NOTIFY compass2CalSucceededChanged)
+    Q_PROPERTY(bool compass3CalSucceeded                    READ compass3CalSucceeded                       NOTIFY compass3CalSucceededChanged)
+
+    Q_PROPERTY(double compass1CalFitness                    READ compass1CalFitness                         NOTIFY compass1CalFitnessChanged)
+    Q_PROPERTY(double compass2CalFitness                    READ compass2CalFitness                         NOTIFY compass2CalFitnessChanged)
+    Q_PROPERTY(double compass3CalFitness                    READ compass3CalFitness                         NOTIFY compass3CalFitnessChanged)
+
 public:
-    APMSensorsComponentController(void);
+    explicit APMSensorsComponentController(QObject *parent = nullptr);
     ~APMSensorsComponentController();
 
-    Q_PROPERTY(QQuickItem* statusLog MEMBER _statusLog)
-    Q_PROPERTY(QQuickItem* progressBar MEMBER _progressBar)
-    
-    Q_PROPERTY(QQuickItem* nextButton MEMBER _nextButton)
-    Q_PROPERTY(QQuickItem* cancelButton MEMBER _cancelButton)
-    Q_PROPERTY(QQuickItem* orientationCalAreaHelpText MEMBER _orientationCalAreaHelpText)
+    Q_INVOKABLE void calibrateCompass();
+    Q_INVOKABLE void calibrateAccel(bool doSimpleAccelCal);
+    Q_INVOKABLE void calibrateCompassNorth(float lat, float lon, int mask);
+    Q_INVOKABLE void calibrateGyro();
+    Q_INVOKABLE void calibrateMotorInterference();
+    Q_INVOKABLE void levelHorizon();
+    Q_INVOKABLE void calibratePressure();
+    Q_INVOKABLE void cancelCalibration();
+    Q_INVOKABLE void nextClicked();
+    Q_INVOKABLE bool usingUDPLink() const;
 
-    Q_PROPERTY(bool compassSetupNeeded  READ compassSetupNeeded NOTIFY setupNeededChanged)
-    Q_PROPERTY(bool accelSetupNeeded    READ accelSetupNeeded   NOTIFY setupNeededChanged)
+    bool compassSetupNeeded() const;
+    bool accelSetupNeeded() const;
 
-    Q_PROPERTY(bool showOrientationCalArea MEMBER _showOrientationCalArea NOTIFY showOrientationCalAreaChanged)
-    
-    Q_PROPERTY(bool orientationCalDownSideDone MEMBER _orientationCalDownSideDone NOTIFY orientationCalSidesDoneChanged)
-    Q_PROPERTY(bool orientationCalUpsideDownSideDone MEMBER _orientationCalUpsideDownSideDone NOTIFY orientationCalSidesDoneChanged)
-    Q_PROPERTY(bool orientationCalLeftSideDone MEMBER _orientationCalLeftSideDone NOTIFY orientationCalSidesDoneChanged)
-    Q_PROPERTY(bool orientationCalRightSideDone MEMBER _orientationCalRightSideDone NOTIFY orientationCalSidesDoneChanged)
-    Q_PROPERTY(bool orientationCalNoseDownSideDone MEMBER _orientationCalNoseDownSideDone NOTIFY orientationCalSidesDoneChanged)
-    Q_PROPERTY(bool orientationCalTailDownSideDone MEMBER _orientationCalTailDownSideDone NOTIFY orientationCalSidesDoneChanged)
-    
-    Q_PROPERTY(bool orientationCalDownSideVisible MEMBER _orientationCalDownSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    Q_PROPERTY(bool orientationCalUpsideDownSideVisible MEMBER _orientationCalUpsideDownSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    Q_PROPERTY(bool orientationCalLeftSideVisible MEMBER _orientationCalLeftSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    Q_PROPERTY(bool orientationCalRightSideVisible MEMBER _orientationCalRightSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    Q_PROPERTY(bool orientationCalNoseDownSideVisible MEMBER _orientationCalNoseDownSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    Q_PROPERTY(bool orientationCalTailDownSideVisible MEMBER _orientationCalTailDownSideVisible NOTIFY orientationCalSidesVisibleChanged)
-    
-    Q_PROPERTY(bool orientationCalDownSideInProgress MEMBER _orientationCalDownSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    Q_PROPERTY(bool orientationCalUpsideDownSideInProgress MEMBER _orientationCalUpsideDownSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    Q_PROPERTY(bool orientationCalLeftSideInProgress MEMBER _orientationCalLeftSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    Q_PROPERTY(bool orientationCalRightSideInProgress MEMBER _orientationCalRightSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    Q_PROPERTY(bool orientationCalNoseDownSideInProgress MEMBER _orientationCalNoseDownSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    Q_PROPERTY(bool orientationCalTailDownSideInProgress MEMBER _orientationCalTailDownSideInProgress NOTIFY orientationCalSidesInProgressChanged)
-    
-    Q_PROPERTY(bool orientationCalDownSideRotate MEMBER _orientationCalDownSideRotate NOTIFY orientationCalSidesRotateChanged)
-    Q_PROPERTY(bool orientationCalUpsideDownSideRotate MEMBER _orientationCalUpsideDownSideRotate NOTIFY orientationCalSidesRotateChanged)
-    Q_PROPERTY(bool orientationCalLeftSideRotate MEMBER _orientationCalLeftSideRotate NOTIFY orientationCalSidesRotateChanged)
-    Q_PROPERTY(bool orientationCalRightSideRotate MEMBER _orientationCalRightSideRotate NOTIFY orientationCalSidesRotateChanged)
-    Q_PROPERTY(bool orientationCalNoseDownSideRotate MEMBER _orientationCalNoseDownSideRotate NOTIFY orientationCalSidesRotateChanged)
-    Q_PROPERTY(bool orientationCalTailDownSideRotate MEMBER _orientationCalTailDownSideRotate NOTIFY orientationCalSidesRotateChanged)
-    
-    Q_PROPERTY(bool waitingForCancel MEMBER _waitingForCancel NOTIFY waitingForCancelChanged)
+    bool compass1CalSucceeded() const { return _rgCompassCalSucceeded[0]; }
+    bool compass2CalSucceeded() const { return _rgCompassCalSucceeded[1]; }
+    bool compass3CalSucceeded() const { return _rgCompassCalSucceeded[2]; }
 
-    Q_PROPERTY(bool compass1CalSucceeded READ compass1CalSucceeded NOTIFY compass1CalSucceededChanged)
-    Q_PROPERTY(bool compass2CalSucceeded READ compass2CalSucceeded NOTIFY compass2CalSucceededChanged)
-    Q_PROPERTY(bool compass3CalSucceeded READ compass3CalSucceeded NOTIFY compass3CalSucceededChanged)
+    bool calibrationActive() const { return _calTypeInProgress != QGCMAVLink::CalibrationNone; }
 
-    Q_PROPERTY(double compass1CalFitness READ compass1CalFitness NOTIFY compass1CalFitnessChanged)
-    Q_PROPERTY(double compass2CalFitness READ compass2CalFitness NOTIFY compass2CalFitnessChanged)
-    Q_PROPERTY(double compass3CalFitness READ compass3CalFitness NOTIFY compass3CalFitnessChanged)
-
-    Q_INVOKABLE void calibrateCompass(void);
-    Q_INVOKABLE void calibrateAccel(void);
-    Q_INVOKABLE void calibrateMotorInterference(void);
-    Q_INVOKABLE void levelHorizon(void);
-    Q_INVOKABLE void calibratePressure(void);
-    Q_INVOKABLE void cancelCalibration(void);
-    Q_INVOKABLE void nextClicked(void);
-    Q_INVOKABLE bool usingUDPLink(void);
-
-    bool compassSetupNeeded(void) const;
-    bool accelSetupNeeded(void) const;
-
-    typedef enum {
-        CalTypeAccel,
-        CalTypeOnboardCompass,
-        CalTypeOffboardCompass,
-        CalTypeLevelHorizon,
-        CalTypeCompassMot,
-        CalTypePressure,
-        CalTypeNone
-    } CalType_t;
-    Q_ENUM(CalType_t)
-
-    bool compass1CalSucceeded(void) const { return _rgCompassCalSucceeded[0]; }
-    bool compass2CalSucceeded(void) const { return _rgCompassCalSucceeded[1]; }
-    bool compass3CalSucceeded(void) const { return _rgCompassCalSucceeded[2]; }
-
-    double compass1CalFitness(void) const { return _rgCompassCalFitness[0]; }
-    double compass2CalFitness(void) const { return _rgCompassCalFitness[1]; }
-    double compass3CalFitness(void) const { return _rgCompassCalFitness[2]; }
+    double compass1CalFitness() const { return _rgCompassCalFitness[0]; }
+    double compass2CalFitness() const { return _rgCompassCalFitness[1]; }
+    double compass3CalFitness() const { return _rgCompassCalFitness[2]; }
 
 signals:
-    void showGyroCalAreaChanged(void);
-    void showOrientationCalAreaChanged(void);
-    void orientationCalSidesDoneChanged(void);
-    void orientationCalSidesVisibleChanged(void);
-    void orientationCalSidesInProgressChanged(void);
-    void orientationCalSidesRotateChanged(void);
-    void resetStatusTextArea(void);
-    void waitingForCancelChanged(void);
-    void setupNeededChanged(void);
-    void calibrationComplete(CalType_t calType);
+    void showGyroCalAreaChanged();
+    void showOrientationCalAreaChanged();
+    void orientationCalSidesDoneChanged();
+    void orientationCalSidesVisibleChanged();
+    void orientationCalSidesInProgressChanged();
+    void orientationCalSidesRotateChanged();
+    void resetStatusTextArea();
+    void waitingForCancelChanged();
+    void calibrationActiveChanged();
+    void setupNeededChanged();
+    void calibrationComplete(QGCMAVLink::CalibrationType calType);
     void compass1CalSucceededChanged(bool compass1CalSucceeded);
     void compass2CalSucceededChanged(bool compass2CalSucceeded);
     void compass3CalSucceededChanged(bool compass3CalSucceeded);
@@ -132,21 +118,24 @@ signals:
     void setAllCalButtonsEnabled(bool enabled);
 
 private slots:
-    void _handleUASTextMessage(int uasId, int compId, int severity, QString text);
-    void _mavlinkMessageReceived(LinkInterface* link, mavlink_message_t message);
-    void _mavCommandResult(int vehicleId, int component, int command, int result, bool noReponseFromVehicle);
+    void _handleTextMessage(int sysid, int componentid, int severity, const QString &text, const QString &description);
+    void _mavlinkMessageReceived(LinkInterface *link, const mavlink_message_t &message);
+    void _mavCommandResult(int vehicleId, int component, int command, int result, int failureCode);
 
 private:
-    void _startLogCalibration(void);
-    void _startVisualCalibration(void);
-    void _appendStatusLog(const QString& text);
-    void _refreshParams(void);
-    void _hideAllCalAreas(void);
-    void _resetInternalState(void);
-    void _handleCommandAck(mavlink_message_t& message);
-    void _handleMagCalProgress(mavlink_message_t& message);
-    void _handleMagCalReport(mavlink_message_t& message);
-    void _restorePreviousCompassCalFitness(void);
+    void _startLogCalibration();
+    void _startVisualCalibration();
+    /// Appends the specified text to the status log area in the ui
+    void _appendStatusLog(const QString &text);
+    void _refreshParams();
+    void _hideAllCalAreas();
+    void _resetInternalState();
+    void _handleCommandAck(const mavlink_message_t &message);
+    void _handleMagCalProgress(const mavlink_message_t &message);
+    void _handleMagCalReport(const mavlink_message_t &message);
+    bool _handleCmdLongAccelcalVehiclePos(const mavlink_command_long_t &commandLong);
+    void _handleCommandLong(const mavlink_message_t &message);
+    void _restorePreviousCompassCalFitness();
 
     enum StopCalibrationCode {
         StopCalibrationSuccess,
@@ -155,62 +144,72 @@ private:
         StopCalibrationCancelled
     };
     void _stopCalibration(StopCalibrationCode code);
-    
+
+    /// Sends MAV_CMD_DO_START_MAG_CAL using _magCalCompassBits. Called from the
+    /// pre-start MAV_CMD_DO_CANCEL_MAG_CAL ack handler.
+    void _sendStartMagCal();
+
     void _updateAndEmitShowOrientationCalArea(bool show);
 
-    APMCompassCal           _compassCal;
-    APMSensorsComponent*    _sensorsComponent;
+    APMSensorsComponent *_sensorsComponent = nullptr;
 
-    QQuickItem* _statusLog;
-    QQuickItem* _progressBar;
-    QQuickItem* _nextButton;
-    QQuickItem* _cancelButton;
-    QQuickItem* _orientationCalAreaHelpText;
-    
-    bool _showOrientationCalArea;
-    
-    CalType_t _calTypeInProgress;
+    QQuickItem *_statusLog = nullptr;
+    QQuickItem *_progressBar = nullptr;
+    QQuickItem *_nextButton = nullptr;
+    QQuickItem *_cancelButton = nullptr;
+    QQuickItem *_orientationCalAreaHelpText = nullptr;
+
+    bool _showOrientationCalArea = false;
+
+    QGCMAVLink::CalibrationType _calTypeInProgress = QGCMAVLink::CalibrationNone;
+
+    /// ArduPilot keeps streaming MAG_CAL_PROGRESS/MAG_CAL_REPORT from a previous cal (a failed
+    /// cal streams until cancelled). Ignore those messages until our start command is accepted.
+    bool _magCalStartAccepted = false;
+
+    /// True while waiting for the pre-start MAV_CMD_DO_CANCEL_MAG_CAL ack; START is sent from
+    /// the ack handler so stale messages can't race into the new calibration session.
+    bool _magCalCancelBeforeStartPending = false;
+    uint8_t _magCalCompassBits = 0; ///< Compasses to calibrate, sent with the deferred START
 
     uint8_t _rgCompassCalProgress[3];
-    bool    _rgCompassCalComplete[3];
-    bool    _rgCompassCalSucceeded[3];
-    float   _rgCompassCalFitness[3];
+    bool _rgCompassCalComplete[3];
+    bool _rgCompassCalSucceeded[3];
+    float _rgCompassCalFitness[3];
 
-    bool _orientationCalDownSideDone;
-    bool _orientationCalUpsideDownSideDone;
-    bool _orientationCalLeftSideDone;
-    bool _orientationCalRightSideDone;
-    bool _orientationCalNoseDownSideDone;
-    bool _orientationCalTailDownSideDone;
-    
-    bool _orientationCalDownSideVisible;
-    bool _orientationCalUpsideDownSideVisible;
-    bool _orientationCalLeftSideVisible;
-    bool _orientationCalRightSideVisible;
-    bool _orientationCalNoseDownSideVisible;
-    bool _orientationCalTailDownSideVisible;
-    
-    bool _orientationCalDownSideInProgress;
-    bool _orientationCalUpsideDownSideInProgress;
-    bool _orientationCalLeftSideInProgress;
-    bool _orientationCalRightSideInProgress;
-    bool _orientationCalNoseDownSideInProgress;
-    bool _orientationCalTailDownSideInProgress;
-    
-    bool _orientationCalDownSideRotate;
-    bool _orientationCalUpsideDownSideRotate;
-    bool _orientationCalLeftSideRotate;
-    bool _orientationCalRightSideRotate;
-    bool _orientationCalNoseDownSideRotate;
-    bool _orientationCalTailDownSideRotate;
-    
-    bool _waitingForCancel;
+    bool _orientationCalDownSideDone = false;;
+    bool _orientationCalUpsideDownSideDone = false;;
+    bool _orientationCalLeftSideDone = false;;
+    bool _orientationCalRightSideDone = false;;
+    bool _orientationCalNoseDownSideDone = false;;
+    bool _orientationCalTailDownSideDone = false;;
 
-    bool _restoreCompassCalFitness;
-    float _previousCompassCalFitness;
-    static const char* _compassCalFitnessParam;
-    
-    static const int _supportedFirmwareCalVersion = 2;
+    bool _orientationCalDownSideVisible = false;;
+    bool _orientationCalUpsideDownSideVisible = false;;
+    bool _orientationCalLeftSideVisible = false;;
+    bool _orientationCalRightSideVisible = false;;
+    bool _orientationCalNoseDownSideVisible = false;;
+    bool _orientationCalTailDownSideVisible = false;;
+
+    bool _orientationCalDownSideInProgress = false;;
+    bool _orientationCalUpsideDownSideInProgress = false;;
+    bool _orientationCalLeftSideInProgress = false;;
+    bool _orientationCalRightSideInProgress = false;;
+    bool _orientationCalNoseDownSideInProgress = false;;
+    bool _orientationCalTailDownSideInProgress = false;;
+
+    bool _orientationCalDownSideRotate = false;;
+    bool _orientationCalUpsideDownSideRotate = false;;
+    bool _orientationCalLeftSideRotate = false;;
+    bool _orientationCalRightSideRotate = false;;
+    bool _orientationCalNoseDownSideRotate = false;;
+    bool _orientationCalTailDownSideRotate = false;;
+
+    bool _waitingForCancel = false;
+
+    bool _restoreCompassCalFitness = false;
+    float _previousCompassCalFitness = 0.;
+    static constexpr const char *_compassCalFitnessParam = "COMPASS_CAL_FIT";
+
+    static constexpr int _supportedFirmwareCalVersion = 2;
 };
-
-#endif

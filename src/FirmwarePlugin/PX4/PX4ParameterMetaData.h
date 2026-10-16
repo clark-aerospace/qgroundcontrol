@@ -1,59 +1,16 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include "ParameterMetaData.h"
 
-#ifndef PX4ParameterMetaData_H
-#define PX4ParameterMetaData_H
-
-#include <QObject>
-#include <QMap>
-#include <QXmlStreamReader>
-#include <QLoggingCategory>
-
-#include "FactSystem.h"
-#include "AutoPilotPlugin.h"
-#include "Vehicle.h"
-
-/// @file
-///     @author Don Gagne <don@thegagnes.com>
-
-Q_DECLARE_LOGGING_CATEGORY(PX4ParameterMetaDataLog)
-
-/// Loads and holds parameter fact meta data for PX4 stack
-class PX4ParameterMetaData : public QObject
+class PX4ParameterMetaData : public ParameterMetaData
 {
-    Q_OBJECT
-    
+    Q_DECLARE_TR_FUNCTIONS(PX4ParameterMetaData)
+
 public:
-    PX4ParameterMetaData(void);
+    explicit PX4ParameterMetaData(QObject *parent = nullptr);
+    ~PX4ParameterMetaData() override;
 
-    void            loadParameterFactMetaDataFile   (const QString& metaDataFile);
-    FactMetaData*   getMetaDataForFact              (const QString& name, MAV_TYPE vehicleType);
-    void            addMetaDataToFact               (Fact* fact, MAV_TYPE vehicleType);
-
-    static void getParameterMetaDataVersionInfo(const QString& metaDataFile, int& majorVersion, int& minorVersion);
-
-private:
-    enum {
-        XmlStateNone,
-        XmlStateFoundParameters,
-        XmlStateFoundVersion,
-        XmlStateFoundGroup,
-        XmlStateFoundParameter,
-        XmlStateDone
-    };    
-
-    QVariant _stringToTypedVariant(const QString& string, FactMetaData::ValueType_t type, bool* convertOk);
-    static void _outputFileWarning(const QString& metaDataFile, const QString& error1, const QString& error2);
-
-    bool _parameterMetaDataLoaded;   ///< true: parameter meta data already loaded
-    QMap<QString, FactMetaData*> _mapParameterName2FactMetaData; ///< Maps from a parameter name to FactMetaData
+protected:
+    void parseParameterJson(const QJsonObject &json) override;
+    void _postProcessMetaData(const QString &name, FactMetaData *metaData) override;
 };
-
-#endif

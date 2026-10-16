@@ -1,24 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
 
-
-import QtQuick          2.3
-import QtQuick.Controls 1.2
-import QtQuick.Dialogs  1.2
-import QtQuick.Layouts  1.11
-
-import QGroundControl               1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.FactControls  1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Controllers   1.0
+import QGroundControl
+import QGroundControl.Controls
+import QGroundControl.FactControls
 
 Item {
     id:     _root
@@ -31,7 +18,7 @@ Item {
     readonly property int _pwmRange:    _pwmMax - _pwmMin
 
     RCChannelMonitorController {
-        id:             controller
+        id: controller
     }
 
     // Live channel monitor control component
@@ -79,7 +66,7 @@ Item {
                 anchors.fill:           parent
                 horizontalAlignment:    Text.AlignHCenter
                 verticalAlignment:      Text.AlignVCenter
-                text:                   "Not Mapped"
+                text:                   qsTr("Not Mapped")
                 visible:                !mapped
             }
 
@@ -101,13 +88,13 @@ Item {
 
         QGCLabel {
             Layout.columnSpan:  parent.columns
-            text:               "Channel Monitor"
+            text:               qsTr("Channel Monitor")
         }
 
         Connections {
             target: controller
 
-            onChannelRCValueChanged: {
+            function onChannelValueChanged(channel, rcValue) {
                 if (channelMonitorRepeater.itemAt(channel)) {
                     channelMonitorRepeater.itemAt(channel).loader.item.rcValue = rcValue
                 }

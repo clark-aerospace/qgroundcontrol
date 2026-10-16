@@ -1,106 +1,106 @@
-/****************************************************************************
- *
- * (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- *   @brief Custom QGCCorePlugin Declaration
- *   @author Gus Grubba <gus@auterion.com>
- */
-
 #pragma once
+
+#include <QtCore/QTranslator>
+#include <QtQml/QQmlAbstractUrlInterceptor>
 
 #include "QGCCorePlugin.h"
 #include "QGCOptions.h"
-#include "QGCLoggingCategory.h"
-#include "VideoReceiver.h"
-#include "SettingsManager.h"
 
-#include <QTranslator>
+class ComplexMissionItem;
+class PlanCreator;
 
+class CustomOptions;
 class CustomPlugin;
-class CustomSettings;
+class QQmlApplicationEngine;
 
 Q_DECLARE_LOGGING_CATEGORY(CustomLog)
 
-//-- Our own, custom video receiver
-class CustomVideoReceiver : public VideoReceiver
+class CustomFlyViewOptions : public QGCFlyViewOptions
 {
     Q_OBJECT
+
 public:
+    explicit CustomFlyViewOptions(CustomOptions *options, QObject *parent = nullptr);
 
-    explicit CustomVideoReceiver(QObject* parent = nullptr);
-    ~CustomVideoReceiver();
+    // Overrides from CustomFlyViewOptions
 
+    /// This custom build has it's own custom instrument panel. Don't show regular one.
+    bool showInstrumentPanel() const final { return false; }
+    /// This custom build does not support conecting multiple vehicles to it.
+    /// This in turn simplifies various parts of the QGC ui.
+    bool showMultiVehicleList() const final { return false; }
 };
 
-//-----------------------------------------------------------------------------
-//-- Our own, custom options
+/*===========================================================================*/
+
 class CustomOptions : public QGCOptions
 {
-public:
-    CustomOptions(CustomPlugin*, QObject* parent = nullptr);
-    bool        wifiReliableForCalibration      () const final { return true; }
-#if defined(Q_OS_LINUX)
-    double      toolbarHeightMultiplier         () final { return 1.25; }
-#endif
-    QUrl        flyViewOverlay                  () const final { return QUrl::fromUserInput("qrc:/custom/CustomFlyView.qml"); }
-    QUrl        preFlightChecklistUrl           () const final { return QUrl::fromUserInput("qrc:/custom/PreFlightCheckList.qml"); }
-    //-- We have our own toolbar
-    QUrl        mainToolbarUrl                  () const final { return QUrl::fromUserInput("qrc:/custom/CustomMainToolBar.qml"); }
-    QUrl        planToolbarUrl                  () const final { return QUrl::fromUserInput("qrc:/custom/CustomMainToolBar.qml"); }
-    //-- Don't show instrument widget
-    CustomInstrumentWidget* instrumentWidget    () final { return nullptr; }
-    bool        showMavlinkLogOptions           () const final { return false; }
+    Q_OBJECT
 
-    bool        showFirmwareUpgrade             () const final;
-    //-- We handle multiple vehicles in a custom way
-    bool        enableMultiVehicleList          () const final { return false; }
-    //-- We handle our own map scale
-    bool        enableMapScale                  () const final { return false; }
-    // TODO: Can't access QGCPalette without some workarounds, change this upstream
-    QColor      toolbarBackgroundLight          () const final;
-    QColor      toolbarBackgroundDark           () const final;
+public:
+    explicit CustomOptions(CustomPlugin *plugin, QObject *parent = nullptr);
+
+    // Overrides from QGCOptions
+
+    /// Firmware upgrade page is only shown in Advanced Mode.
+    bool showFirmwareUpgrade() const final { return _plugin->showAdvancedUI(); }
+    QGCFlyViewOptions *flyViewOptions() const final { return _flyViewOptions; }
+
+private:
+    QGCCorePlugin *_plugin = nullptr;
+    CustomFlyViewOptions *_flyViewOptions = nullptr;
 };
 
+/*===========================================================================*/
 
-//-----------------------------------------------------------------------------
 class CustomPlugin : public QGCCorePlugin
 {
     Q_OBJECT
+
 public:
-    CustomPlugin(QGCApplication* app, QGCToolbox *toolbox);
-    ~CustomPlugin();
+    explicit CustomPlugin(QObject *parent = nullptr);
+
+    static QGCCorePlugin *instance();
 
     // Overrides from QGCCorePlugin
-    QVariantList&           settingsPages                   () final;
-    QGCOptions*             options                         () final;
-    QString                 brandImageIndoor                () const final;
-    QString                 brandImageOutdoor               () const final;
-    bool                    overrideSettingsGroupVisibility (QString name) final;
-    VideoManager*           createVideoManager              (QGCApplication* app, QGCToolbox* toolbox) final;
-    VideoReceiver*          createVideoReceiver             (QObject* parent) final;
-    QQmlApplicationEngine*  createRootWindow                (QObject* parent) final;
-    bool                    adjustSettingMetaData           (const QString& settingsGroup, FactMetaData& metaData) final;
-    void                    paletteOverride                 (QString colorName, QGCPalette::PaletteColorInfo_t& colorInfo) final;
-    // Overrides from QGCTool
-    void                    setToolbox                      (QGCToolbox* toolbox);
 
-    const static QColor     _windowShadeEnabledLightColor;
-    const static QColor     _windowShadeEnabledDarkColor;
+    QGCOptions *options() final { return _options; }
+    /// This allows you to override/hide QGC Application settings
+    void adjustSettingMetaData(const QString &settingsGroup, FactMetaData &metaData, bool &userVisible) final;
+    /// This modifies QGC colors palette to match possible custom corporate branding
+    void paletteOverride(const QString &colorName, QGCPalette::PaletteColorInfo_t &colorInfo) final;
+    /// We override this so we can get access to QQmlApplicationEngine and use it to register our qml module
+    QQmlApplicationEngine *createQmlApplicationEngine(QObject *parent) final;
+    /// Releases the url interceptor attached in createQmlApplicationEngine before the engine is destroyed
+    void destroyQmlApplicationEngine(QQmlApplicationEngine *qmlEngine) final;
+
+    /// Adds the Perimeter Scan item to the complex-item menu.
+    QVariantList complexMissionItemNames(Vehicle *vehicle) final;
+    /// Factory: creates PerimeterScanComplexItem for our custom type, falls back to base for built-ins.
+    ComplexMissionItem *createComplexMissionItem(const QString &complexItemType,
+                                                 PlanMasterController *masterController,
+                                                 bool flyView,
+                                                 const QString &kmlOrShpFile = QString()) final;
+    /// Adds the Perimeter Scan plan creator to the New Plan dialog.
+    QList<PlanCreator *> planCreators(PlanMasterController *planMasterController) final;
+    /// Registers the CustomSettings group so the generated Custom settings page can access it.
+    void registerCustomSettings(SettingsManager *settingsManager) final;
 
 private slots:
-    void                    _advancedChanged                (bool advanced);
+    void _advancedChanged(bool advanced);
 
 private:
-    void
-    addSettingsEntry(
-        const QString& title,
-        const char* qmlFile,
-        const char* iconFile = nullptr);
+    CustomOptions *_options = nullptr;
+    QQmlApplicationEngine *_qmlEngine = nullptr;
+    class CustomOverrideInterceptor *_urlInterceptor = nullptr;
+};
 
-private:
-    CustomOptions*      _pOptions = nullptr;
-    QVariantList        _customSettingsList; // Not to be mixed up with QGCCorePlugin implementation
+/*===========================================================================*/
+
+class CustomOverrideInterceptor : public QQmlAbstractUrlInterceptor
+{
+public:
+    CustomOverrideInterceptor();
+
+    QUrl intercept(const QUrl &url, QQmlAbstractUrlInterceptor::DataType type) final;
 };

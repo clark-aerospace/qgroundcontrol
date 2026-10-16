@@ -1,38 +1,32 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "APMFirmwarePluginFactory.h"
-#include "APM/ArduCopterFirmwarePlugin.h"
-#include "APM/ArduPlaneFirmwarePlugin.h"
-#include "APM/ArduRoverFirmwarePlugin.h"
-#include "APM/ArduSubFirmwarePlugin.h"
+#include "ArduCopterFirmwarePlugin.h"
+#include "ArduPlaneFirmwarePlugin.h"
+#include "ArduRoverFirmwarePlugin.h"
+#include "ArduSubFirmwarePlugin.h"
+#include "QGCLoggingCategory.h"
 
-APMFirmwarePluginFactory APMFirmwarePluginFactory;
+QGC_LOGGING_CATEGORY(APMFirmwarePluginFactoryLog, "FirmwarePlugin.APMFirmwarePluginFactory");
 
-APMFirmwarePluginFactory::APMFirmwarePluginFactory(void)
-    : _arduCopterPluginInstance(nullptr)
-    , _arduPlanePluginInstance(nullptr)
-    , _arduRoverPluginInstance(nullptr)
-    , _arduSubPluginInstance(nullptr)
+APMFirmwarePluginFactory APMFirmwarePluginFactory(nullptr);
+
+APMFirmwarePluginFactory::APMFirmwarePluginFactory(QObject */*parent*/)
 {
-
+    // qCDebug(FirmwarePluginFactoryLog) << Q_FUNC_INFO << this;
 }
 
-QList<MAV_AUTOPILOT> APMFirmwarePluginFactory::supportedFirmwareTypes(void) const
+APMFirmwarePluginFactory::~APMFirmwarePluginFactory()
 {
-    QList<MAV_AUTOPILOT> list;
+    // qCDebug(FirmwarePluginFactoryLog) << Q_FUNC_INFO << this;
+}
 
-    list.append(MAV_AUTOPILOT_ARDUPILOTMEGA);
+QList<QGCMAVLink::FirmwareClass_t> APMFirmwarePluginFactory::supportedFirmwareClasses() const
+{
+    QList<QGCMAVLink::FirmwareClass_t> list;
+    list.append(QGCMAVLink::FirmwareClassArduPilot);
     return list;
 }
 
-FirmwarePlugin* APMFirmwarePluginFactory::firmwarePluginForAutopilot(MAV_AUTOPILOT autopilotType, MAV_TYPE vehicleType)
+FirmwarePlugin *APMFirmwarePluginFactory::firmwarePluginForAutopilot(MAV_AUTOPILOT autopilotType, MAV_TYPE vehicleType)
 {
     if (autopilotType == MAV_AUTOPILOT_ARDUPILOTMEGA) {
         switch (vehicleType) {
@@ -43,15 +37,15 @@ FirmwarePlugin* APMFirmwarePluginFactory::firmwarePluginForAutopilot(MAV_AUTOPIL
         case MAV_TYPE_COAXIAL:
         case MAV_TYPE_HELICOPTER:
             if (!_arduCopterPluginInstance) {
-                _arduCopterPluginInstance = new ArduCopterFirmwarePlugin;
+                _arduCopterPluginInstance = new ArduCopterFirmwarePlugin(this);
             }
             return _arduCopterPluginInstance;
-        case MAV_TYPE_VTOL_DUOROTOR:
-        case MAV_TYPE_VTOL_QUADROTOR:
+        case MAV_TYPE_VTOL_TAILSITTER_DUOROTOR:
+        case MAV_TYPE_VTOL_TAILSITTER_QUADROTOR:
         case MAV_TYPE_VTOL_TILTROTOR:
-        case MAV_TYPE_VTOL_RESERVED2:
-        case MAV_TYPE_VTOL_RESERVED3:
-        case MAV_TYPE_VTOL_RESERVED4:
+        case MAV_TYPE_VTOL_FIXEDROTOR:
+        case MAV_TYPE_VTOL_TAILSITTER:
+        case MAV_TYPE_VTOL_TILTWING:
         case MAV_TYPE_VTOL_RESERVED5:
         case MAV_TYPE_FIXED_WING:
             if (!_arduPlanePluginInstance) {

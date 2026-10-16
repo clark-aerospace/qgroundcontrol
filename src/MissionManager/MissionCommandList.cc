@@ -1,30 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "MissionCommandList.h"
-#include "FactMetaData.h"
-#include "Vehicle.h"
-#include "FirmwarePluginManager.h"
-#include "QGCApplication.h"
-#include "QGroundControlQmlGlobal.h"
-#include "JsonHelper.h"
+#include "JsonParsing.h"
 #include "MissionCommandUIInfo.h"
+#include "QGCLoggingCategory.h"
 
-#include <QStringList>
-#include <QJsonDocument>
-#include <QJsonParseError>
-#include <QJsonArray>
-#include <QDebug>
-#include <QFile>
+#include <QtCore/QJsonArray>
 
-const char* MissionCommandList::_versionJsonKey =       "version";
-const char* MissionCommandList::_mavCmdInfoJsonKey =    "mavCmdInfo";
+QGC_LOGGING_CATEGORY(MissionCommandListLog, "MissionManager.MissionCommandList")
 
 MissionCommandList::MissionCommandList(const QString& jsonFilename, bool baseCommandList, QObject* parent)
     : QObject(parent)
@@ -38,34 +19,22 @@ void MissionCommandList::_loadMavCmdInfoJson(const QString& jsonFilename, bool b
         return;
     }
 
-    qCDebug(MissionCommandsLog) << "Loading" << jsonFilename;
+    qCDebug(MissionCommandListLog) << "Loading" << jsonFilename;
 
-    QFile jsonFile(jsonFilename);
-    if (!jsonFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Unable to open file" << jsonFilename << jsonFile.errorString();
+    QString errorString;
+    int version;
+    QJsonObject jsonObject = JsonParsing::openInternalQGCJsonFile(
+        jsonFilename, qgcFileType, 1, 1, version, errorString,
+        QStringList{"label", "enumStrings", "friendlyName", "description", "category"},
+        QStringList{"rawName", "comment"});
+    if (!errorString.isEmpty()) {
+        qCWarning(MissionCommandListLog) << "Internal Error: " << errorString;
         return;
     }
 
-    QByteArray bytes = jsonFile.readAll();
-    jsonFile.close();
-    QJsonParseError jsonParseError;
-    QJsonDocument doc = QJsonDocument::fromJson(bytes, &jsonParseError);
-    if (jsonParseError.error != QJsonParseError::NoError) {
-        qWarning() << jsonFilename << "Unable to open json document" << jsonParseError.errorString();
-        return;
-    }
-
-    QJsonObject json = doc.object();
-
-    int version = json.value(_versionJsonKey).toInt();
-    if (version != 1) {
-        qWarning() << jsonFilename << "Invalid version" << version;
-        return;
-    }
-
-    QJsonValue jsonValue = json.value(_mavCmdInfoJsonKey);
+    QJsonValue jsonValue = jsonObject.value(_mavCmdInfoJsonKey);
     if (!jsonValue.isArray()) {
-        qWarning() << jsonFilename << "mavCmdInfo not array";
+        qCWarning(MissionCommandListLog) << jsonFilename << "mavCmdInfo not array";
         return;
     }
 
@@ -73,17 +42,18 @@ void MissionCommandList::_loadMavCmdInfoJson(const QString& jsonFilename, bool b
     QJsonArray jsonArray = jsonValue.toArray();
     for(QJsonValue info: jsonArray) {
         if (!info.isObject()) {
-            qWarning() << jsonFilename << "mavCmdArray should contain objects";
+            qCWarning(MissionCommandListLog) << jsonFilename << "mavCmdArray should contain objects";
             return;
         }
 
         MissionCommandUIInfo* uiInfo = new MissionCommandUIInfo(this);
 
-        QString errorString;
-        if (!uiInfo->loadJsonInfo(info.toObject(), baseCommandList, errorString)) {
+        QString uiInfoErrorString;
+        if (!uiInfo->loadJsonInfo(info.toObject(), baseCommandList, uiInfoErrorString)) {
             uiInfo->deleteLater();
-            qWarning() << jsonFilename << errorString;
-            return;
+            qCWarning(MissionCommandListLog) << jsonFilename << uiInfoErrorString;
+            // Skip only this entry; one bad entry (e.g. from a broken translation) must not drop the whole list
+            continue;
         }
 
         // Update list of known categories

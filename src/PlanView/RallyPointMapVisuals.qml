@@ -1,22 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtLocation
+import QtPositioning
 
-import QtQuick          2.3
-import QtQuick.Controls 1.2
-import QtLocation       5.3
-import QtPositioning    5.3
-
-import QGroundControl               1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.FlightMap     1.0
+import QGroundControl
+import QGroundControl.Controls
+import QGroundControl.FlightMap
 
 /// Rally Point map visuals
 Item {
@@ -47,7 +36,7 @@ Item {
         MissionItemIndicatorDrag {
             mapControl:     _root.map
             itemCoordinate: rallyPointObject.coordinate
-            visible:        rallyPointObject === myRallyPointController.currentRallyPoint
+            visible:        rallyPointObject === myRallyPointController.currentRallyPoint && _root.interactive
 
             property var rallyPointObject
 
@@ -63,13 +52,14 @@ Item {
             anchorPoint.x:  sourceItem.anchorPointX
             anchorPoint.y:  sourceItem.anchorPointY
             z:              QGroundControl.zOrderMapItems
+            opacity:        _root.opacity
 
             property var rallyPointObject
 
             sourceItem: MissionItemIndexLabel {
                 id:                 itemIndexLabel
                 label:              qsTr("R", "rally point map item label")
-                checked:            _editingLayer == _layerRallyPoints ? rallyPointObject === myRallyPointController.currentRallyPoint : false
+                checked:            _editingLayer == _layerRally ? rallyPointObject === myRallyPointController.currentRallyPoint : false
                 highlightSelected:  true
                 onClicked:          myRallyPointController.currentRallyPoint = rallyPointObject
             }
@@ -84,6 +74,7 @@ Item {
             model: _rallyPoints
 
             delegate: Item {
+                opacity:        _root.opacity
                 property var _visuals: [ ]
 
                 Component.onCompleted: {

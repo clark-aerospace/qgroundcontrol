@@ -1,57 +1,55 @@
-import QtQuick                  2.3
-import QtQuick.Controls         1.2
-import QtQuick.Controls.Styles  1.4
-import QtQuick.Dialogs          1.2
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
 
-import QGroundControl.FactSystem    1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.ScreenTools   1.0
+import QGroundControl
+import QGroundControl.Controls
 
 QGCTextField {
-    id: _textField
-
-    text:       fact ? fact.valueString : ""
-    unitsLabel: fact ? fact.units : ""
-    showUnits:  true
-    showHelp:   true
+    id:                 control
+    text:               fact ? fact.valueString : ""
+    unitsLabel:         fact ? fact.units : ""
+    showUnits:          true
+    showHelp:           false
+    numericValuesOnly:  fact && !fact.typeIsString
+    maximumLength:      fact && fact.maxStringLength > 0 ? fact.maxStringLength : 32767 // 32767 is the TextInput default (no limit)
 
     signal updated()
 
-    property Fact   fact: null
+    property Fact fact: null
 
-    property string _validateString
+    onEditingFinished: _onEditingFinished()
 
-    inputMethodHints: ((fact && fact.typeIsString) || ScreenTools.isiOS) ?
-                          Qt.ImhNone :                // iOS numeric keyboard has no done button, we can't use it
-                          Qt.ImhFormattedNumbersOnly  // Forces use of virtual numeric keyboard
-
-    onEditingFinished: {
+    function _onEditingFinished() {
+        // Focus loss also lands here; writing back the unedited, rounded display text would change the value
+        if (text === fact.valueString) {
+            clearValidationError()
+            return
+        }
         var errorString = fact.validate(text, false /* convertOnly */)
         if (errorString === "") {
+            clearValidationError()
             fact.value = text
-            _textField.updated()
+            control.updated()
         } else {
-            _validateString = text
-            mainWindow.showComponentDialog(validationErrorDialogComponent, qsTr("Invalid Value"), mainWindow.showDialogDefaultWidth, StandardButton.Save | StandardButton.Cancel)
+            showValidationError(errorString, fact.valueString)
         }
     }
 
-    onHelpClicked: mainWindow.showComponentDialog(helpDialogComponent, qsTr("Value Details"), mainWindow.showDialogDefaultWidth, StandardButton.Save | StandardButton.Cancel)
+    onHelpClicked: helpDialogFactory.open()
 
-    Component {
-        id: validationErrorDialogComponent
-        ParameterEditorDialog {
-            validate:       true
-            validateValue:  _validateString
-            fact:           _textField.fact
-        }
+    QGCPopupDialogFactory {
+        id: helpDialogFactory
+
+        dialogComponent: helpDialogComponent
     }
 
     Component {
         id: helpDialogComponent
+
         ParameterEditorDialog {
-            fact: _textField.fact
+            title:          qsTr("Value Details")
+            fact:           control.fact
         }
     }
 }

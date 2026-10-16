@@ -1,27 +1,22 @@
-/****************************************************************************
- *
- *   (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
-#include <QObject>
-#include <QVector>
-#include <QPointF>
+#include <QtCore/QObject>
+#include <QtCore/QVector>
+#include <QtCore/QPointF>
+#include <QtQmlIntegration/QtQmlIntegration>
 
-#include "QGCMAVLink.h"
+#include "MAVLinkMessageType.h"
+#include "QGCMAVLinkTypes.h"
 
 class Vehicle;
 
 class VehicleObjectAvoidance : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
 public:
-    VehicleObjectAvoidance(Vehicle* vehicle, QObject* parent = nullptr);
+    explicit VehicleObjectAvoidance(Vehicle* vehicle, QObject* parent = nullptr);
 
     Q_PROPERTY(bool             available   READ available      NOTIFY objectAvoidanceChanged)
     Q_PROPERTY(bool             enabled     READ enabled        NOTIFY objectAvoidanceChanged)
@@ -43,10 +38,10 @@ public:
     bool            available   () { return _distances.count() > 0; }
     bool            enabled     ();
     QList<int>      distances   () { return _distances; }
-    qreal           increment   () { return _increment; }
-    int             minDistance () { return _minDistance; }
-    int             maxDistance () { return _maxDistance; }
-    qreal           angleOffset () { return _angleOffset; }
+    qreal           increment   () const{ return _increment; }
+    int             minDistance () const{ return _minDistance; }
+    int             maxDistance () const{ return _maxDistance; }
+    qreal           angleOffset () const{ return _angleOffset; }
     int             gridSize    () { return _objGrid.count(); }
 
     void            update      (mavlink_obstacle_distance_t* message);
@@ -63,5 +58,6 @@ private:
     int             _maxDistance    = 0;
     qreal           _angleOffset    = 0;
     Vehicle*        _vehicle        = nullptr;
-};
 
+    static constexpr const char* kColPrevParam = "CP_DIST";
+};

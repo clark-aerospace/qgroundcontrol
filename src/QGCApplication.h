@@ -1,207 +1,185 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QLoggingCategory>
+#include <QtCore/QMap>
+#include <QtCore/QSet>
+#include <QtCore/QTime>
+#include <QtCore/QTimer>
+#include <QtCore/QTranslator>
+#include <QtGui/QGuiApplication>
 
-/**
- * @file
- *   @brief Definition of main class
- *
- *   @author Lorenz Meier <mavteam@student.ethz.ch>
- *
- */
+namespace QGCCommandLineParser {
+    struct CommandLineParseResult;
+}
 
-#ifndef QGCAPPLICATION_H
-#define QGCAPPLICATION_H
+class QQmlApplicationEngine;
+class QQuickWindow;
+class QGCImageProvider;
+class QGCApplication;
+class QEvent;
+class QPostEventList;
+class QMetaMethod;
+struct QMetaObject;
 
-#include <QApplication>
-#include <QTimer>
-#include <QQmlApplicationEngine>
-
-#include "LinkConfiguration.h"
-#include "LinkManager.h"
-#include "MAVLinkProtocol.h"
-#include "FlightMapSettings.h"
-#include "FirmwarePluginManager.h"
-#include "MultiVehicleManager.h"
-#include "JoystickManager.h"
-#include "AudioOutput.h"
-#include "UASMessageHandler.h"
-#include "FactSystem.h"
-#include "GPSRTKFactGroup.h"
-
-#ifdef QGC_RTLAB_ENABLED
-#include "OpalLink.h"
+#if defined(qApp)
+#undef qApp
 #endif
+#define qApp (static_cast<QGCApplication*>(QGuiApplication::instance()))
 
-// Work around circular header includes
-class QGCSingleton;
-class QGCToolbox;
-class QGCFileDownload;
+#if defined(qGuiApp)
+#undef qGuiApp
+#endif
+#define qGuiApp (static_cast<QGCApplication*>(QGuiApplication::instance()))
 
-/**
- * @brief The main application and management class.
- *
- * This class is started by the main method and provides
- * the central management unit of the groundstation application.
- *
- **/
+#define qgcApp() qApp
+
+/// \brief The main application and management class.
+///
 class QGCApplication : public QGuiApplication
 {
     Q_OBJECT
 
+    /// Unit Test have access to creating and destroying singletons
+    friend class UnitTest;
 public:
-    QGCApplication(int &argc, char* argv[], bool unitTesting);
+    QGCApplication(int &argc, char *argv[], const QGCCommandLineParser::CommandLineParseResult &args);
     ~QGCApplication();
 
-    /// @brief Sets the persistent flag to delete all settings the next time QGroundControl is started.
-    void deleteAllSettingsNextBoot(void);
+    bool runningUnitTests() const { return _runningUnitTests; }
+    bool simpleBootTest() const { return _simpleBootTest; }
+    bool bootTestPassed() const { return _bootTestPassed; }
 
-    /// @brief Clears the persistent flag to delete all settings the next time QGroundControl is started.
-    void clearDeleteAllSettingsNextBoot(void);
-
-    /// @brief Returns true if unit tests are being run
-    bool runningUnitTests(void) { return _runningUnitTests; }
-
-    /// @brief Returns true if Qt debug output should be logged to a file
-    bool logOutput(void) { return _logOutput; }
+    /// Returns true if Qt debug output should be logged to a file
+    bool logOutput() const { return _logOutput; }
 
     /// Used to report a missing Parameter. Warning will be displayed to user. Method may be called
     /// multiple times.
-    void reportMissingParameter(int componentId, const QString& name);
-
-    /// Show a non-modal message to the user
-    void showMessage(const QString& message);
+    void reportMissingParameter(int componentId, const QString &name);
 
     /// @return true: Fake ui into showing mobile interface
-    bool fakeMobile(void) const { return _fakeMobile; }
+    bool fakeMobile() const { return _fakeMobile; }
 
-    // Still working on getting rid of this and using dependency injection instead for everything
-    QGCToolbox* toolbox(void) { return _toolbox; }
+    void setLanguage();
+    QQuickWindow *mainRootWindow();
+    uint64_t msecsSinceBoot() const { return _msecsElapsedTime.elapsed(); }
 
-    /// Do we have Bluetooth Support?
-    bool isBluetoothAvailable() { return _bluetoothAvailable; }
+    /// Registers the signal such that only the last duplicate signal added is left in the queue.
+    void addCompressedSignal(const QMetaMethod &method);
 
-    /// Is Internet available?
-    bool isInternetAvailable();
+    void removeCompressedSignal(const QMetaMethod &method);
 
-    FactGroup* gpsRtkFactGroup(void)  { return _gpsRtkFactGroup; }
+    bool event(QEvent *e) final;
 
-    static QString cachedParameterMetaDataFile(void);
-    static QString cachedAirframeMetaDataFile(void);
+    static QString cachedParameterMetaDataFile();
+    static QString cachedAirframeMetaDataFile();
 
-    void            setLanguage();
-    QQuickItem*     mainRootWindow();
+public:
+    /// Perform initialize which is common to both normal application running and unit tests.
+    void init();
+    void shutdown();
 
-public slots:
-    /// You can connect to this slot to show an information message box from a different thread.
-    void informationMessageBoxOnMainThread(const QString& title, const QString& msg);
-
-    /// You can connect to this slot to show a warning message box from a different thread.
-    void warningMessageBoxOnMainThread(const QString& title, const QString& msg);
-
-    /// You can connect to this slot to show a critical message box from a different thread.
-    void criticalMessageBoxOnMainThread(const QString& title, const QString& msg);
-
-    void showSetupView();
-
-    void qmlAttemptWindowClose();
-
-    /// Save the specified telemetry Log
-    void saveTelemetryLogOnMainThread(QString tempLogfile);
-
-    /// Check that the telemetry save path is set correctly
-    void checkTelemetrySavePathOnMainThread();
-
-    /// Get current language
-    const QLocale getCurrentLanguage() { return _locale; }
+    /// Although public, these methods are internal and should only be called by UnitTest code
+    QQmlApplicationEngine *qmlAppEngine() const { return _qmlAppEngine; }
+    /// UI test harnesses create their own QML engine; registering it here lets app-level
+    /// messaging (showAppMessage) reach the test's MainWindow. Pass nullptr on teardown.
+    void setQmlAppEngine(QQmlApplicationEngine *engine)
+    {
+        _qmlAppEngine = engine;
+        _mainRootWindow = nullptr;    // cached from the previous engine's root object
+        _uiTestMode = (engine != nullptr);
+    }
+    /// showRebootAppMessage() debounces repeat messages (2 min). Tests reset the
+    /// debounce per-test so each one deterministically sees its own message.
+    void resetRebootMessageDebounce() { _lastRebootMessageTime = QTime(); }
 
 signals:
-    /// This is connected to MAVLinkProtocol::checkForLostLogFiles. We signal this to ourselves to call the slot
-    /// on the MAVLinkProtocol thread;
-    void checkForLostLogFiles   ();
+    void languageChanged(const QLocale &locale);
 
-    void languageChanged        (const QLocale locale);
+public slots:
+    void qmlAttemptWindowClose();
 
-public:
-    // Although public, these methods are internal and should only be called by UnitTest code
+    /// Get current language
+    QLocale getCurrentLanguage() const { return _locale; }
 
-    /// @brief Perform initialize which is common to both normal application running and unit tests.
-    ///         Although public should only be called by main.
-    void _initCommon();
+    /// Show non-modal vehicle message to the user
+    void showCriticalVehicleMessage(const QString &message);
 
-    /// @brief Initialize the application for normal application boot. Or in other words we are not going to run
-    ///         unit tests. Although public should only be called by main.
-    bool _initForNormalAppBoot();
+    /// Show modal application message to the user
+    void showAppMessage(const QString &message, const QString &title = QString());
 
-    /// @brief Initialize the application for normal application boot. Or in other words we are not going to run
-    ///         unit tests. Although public should only be called by main.
-    bool _initForUnitTests();
+    /// Show modal application message to the user about the need for a reboot. Multiple messages will be supressed if they occur
+    /// one after the other.
+    void showRebootAppMessage(const QString &message, const QString &title = QString());
 
-    static QGCApplication*  _app;   ///< Our own singleton. Should be reference directly by qgcApp
-
-    bool    isErrorState()  { return _error; }
-
-public:
-    // Although public, these methods are internal and should only be called by UnitTest code
-
-    /// Shutdown the application object
-    void _shutdown();
-
-    bool _checkTelemetrySavePath(bool useMessageBox);
+    QGCImageProvider *qgcImageProvider();
 
 private slots:
-    void _missingParamsDisplay(void);
-    void _currentVersionDownloadFinished(QString remoteFile, QString localFile);
-    void _currentVersionDownloadError(QString errorMsg);
-    bool _parseVersionText(const QString& versionString, int& majorVersion, int& minorVersion, int& buildVersion);
-    void _onGPSConnect();
-    void _onGPSDisconnect();
-    void _gpsSurveyInStatus(float duration, float accuracyMM,  double latitude, double longitude, float altitude, bool valid, bool active);
-    void _gpsNumSatellites(int numSatellites);
+    /// Called when the delay timer fires to show the missing parameters warning
+    void _missingParamsDisplay();
+    void _showDelayedAppMessages();
 
 private:
-    QObject*    _rootQmlObject          ();
-    void        _checkForNewVersion     ();
-    void        _exitWithError          (QString errorMessage);
+    bool compressEvent(QEvent *event, QObject *receiver, QPostEventList *postedEvents) final;
 
+    bool _initVideo();
 
-    bool                _runningUnitTests;                                  ///< true: running unit tests, false: normal app
-    static const int    _missingParamsDelayedDisplayTimerTimeout = 1000;    ///< Timeout to wait for next missing fact to come in before display
-    QTimer              _missingParamsDelayedDisplayTimer;                  ///< Timer use to delay missing fact display
-    QStringList         _missingParams;                                     ///< List of missing facts to be displayed
+    bool _initQmlRootWindow();
 
-    QQmlApplicationEngine* _qmlAppEngine        = nullptr;
-    bool                _logOutput              = false;                    ///< true: Log Qt debug output to file
-    bool				_fakeMobile             = false;                    ///< true: Fake ui into displaying mobile interface
-    bool                _settingsUpgraded       = false;                    ///< true: Settings format has been upgrade to new version
-    int                 _majorVersion           = 0;
-    int                 _minorVersion           = 0;
-    int                 _buildVersion           = 0;
-    QGCFileDownload*    _currentVersionDownload = nullptr;
-    GPSRTKFactGroup*    _gpsRtkFactGroup        = nullptr;
-    QGCToolbox*         _toolbox                = nullptr;
-    QQuickItem*         _mainRootWindow         = nullptr;
-    bool                _bluetoothAvailable     = false;
-    QTranslator         _QGCTranslator;
-    QTranslator         _QGCTranslatorQt;
-    QLocale             _locale;
-    bool                _error                  = false;
+    /// Initialize the application for normal application boot. Or in other words we are not going to run unit tests.
+    void _initForNormalAppBoot();
 
-    static const char* _settingsVersionKey;             ///< Settings key which hold settings version
-    static const char* _deleteAllSettingsKey;           ///< If this settings key is set on boot, all settings will be deleted
+    QObject *_rootQmlObject();
+    bool _rebootMessageDebounced();
 
-    /// Unit Test have access to creating and destroying singletons
-    friend class UnitTest;
+    bool _runningUnitTests = false;
+    bool _simpleBootTest = false;
+    bool _uiTestMode = false;    ///< true: QML UI test harness registered its engine via setQmlAppEngine()
+    bool _fakeMobile = false;    ///< true: Fake ui into displaying mobile interface
+    bool _logOutput = false;    ///< true: Log Qt debug output to file
+    quint8 _systemId = 0; ///< MAVLink system ID, 0 means not set
+    QTime _lastRebootMessageTime;    ///< showRebootAppMessage() debounce state
 
+    static constexpr int _missingParamsDelayedDisplayTimerTimeout = 1000;   ///< Timeout to wait for next missing fact to come in before display
+    QTimer _missingParamsDelayedDisplayTimer;                               ///< Timer use to delay missing fact display
+    QList<QPair<int,QString>> _missingParams;                               ///< List of missing parameter component id:name
+
+    QQmlApplicationEngine *_qmlAppEngine = nullptr;
+    bool _settingsUpgraded = false;    ///< true: Settings format has been upgrade to new version
+    QQuickWindow *_mainRootWindow = nullptr;
+    QTranslator _qgcTranslatorSourceCode;           ///< translations for source code C++/Qml
+    QTranslator _qgcTranslatorQtLibs;               ///< tranlsations for Qt libraries
+    QLocale _locale;
+    bool _error = false;
+    bool _showErrorsInToolbar = false;
+    QElapsedTimer _msecsElapsedTime;
+    bool _videoManagerInitialized = false;
+    bool _bootTestPassed = true;
+
+    QList<QPair<QString /* title */, QString /* message */>> _delayedAppMessages;
+
+    class CompressedSignalList
+    {
+    public:
+        CompressedSignalList() {}
+        void add(const QMetaMethod &method);
+        void remove(const QMetaMethod &method);
+        bool contains(const QMetaObject *metaObject, int signalIndex);
+
+    private:
+        /// Returns a signal index that is can be compared to QMetaCallEvent.signalId
+        static int _signalIndex(const QMetaMethod &method);
+
+        QMap<const QMetaObject*, QSet<int>> _signalMap;
+
+        Q_DISABLE_COPY(CompressedSignalList)
+    };
+
+    CompressedSignalList _compressedSignals;
+
+    const QString _settingsVersionKey = QStringLiteral("SettingsVersion"); ///< Settings key which hold settings version
+
+    const QString _qgcImageProviderId = QStringLiteral("QGCImages");
 };
 
-/// @brief Returns the QGCApplication object singleton.
-QGCApplication* qgcApp(void);
-
-#endif
+Q_DECLARE_LOGGING_CATEGORY(QGCAppMessageLog)

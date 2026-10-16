@@ -1,19 +1,8 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
 
-import QtQuick                  2.3
-import QtQuick.Controls         1.2
-import QtQuick.Controls.Styles  1.4
-
-import QGroundControl               1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.ScreenTools   1.0
+import QGroundControl
+import QGroundControl.Controls
 
 /// The PreFlightCheckButton supports creating a button which the user then has to verify/click to confirm a check.
 /// It also supports failing the check based on values from within the system: telemetry or QGC app values. These
@@ -32,6 +21,7 @@ QGCButton {
     property bool   telemetryFailure:               false   ///< true: telemetry check failing, false: telemetry check passing
     property bool   allowTelemetryFailureOverride:  false   ///< true: user can click past telemetry failure
     property bool   passed:                         _manualState === _statePassed && _telemetryState === _statePassed
+    property bool   failed:                         _manualState === _stateFailed || _telemetryState === _stateFailed
 
     property int _manualState:          manualText === "" ? _statePassed : _statePending
     property int _telemetryState:       _statePassed
@@ -59,35 +49,30 @@ QGCButton {
                                           _pendingColor :
                                           _failedColor))
 
-    width:      40 * ScreenTools.defaultFontPixelWidth
+    width:          40 * ScreenTools.defaultFontPixelWidth
+    topPadding:     _verticalPadding
+    bottomPadding:  _verticalPadding
+    leftPadding:    (_horizontalPadding * 2) + _stateFlagWidth
+    rightPadding:   _horizontalPadding
 
-    style: ButtonStyle {
-        padding {
-            top:    _verticalPadding
-            bottom: _verticalPadding
-            left:   (_horizontalPadding * 2) + _stateFlagWidth
-            right:  _horizontalPadding
+    background: Rectangle {
+        color:          qgcPal.button
+        border.color:   qgcPal.button;
+
+        Rectangle {
+            color:          _color
+            anchors.left:   parent.left
+            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
+            width:          _stateFlagWidth
         }
+    }
 
-        background: Rectangle {
-            color:          qgcPal.button
-            border.color:   qgcPal.button;
-
-            Rectangle {
-                color:          _color
-                anchors.left:   parent.left
-                anchors.top:    parent.top
-                anchors.bottom: parent.bottom
-                width:          _stateFlagWidth
-            }
-        }
-
-        label: Label {
-            text:                   _text
-            wrapMode:               Text.WordWrap
-            horizontalAlignment:    Text.AlignHCenter
-            color:                  qgcPal.buttonText
-        }
+    contentItem: QGCLabel {
+        wrapMode:               Text.WordWrap
+        horizontalAlignment:    Text.AlignHCenter
+        color:                  qgcPal.buttonText
+        text:                   _text
     }
 
     function _updateTelemetryState() {
@@ -112,9 +97,9 @@ QGCButton {
             _telemetryState = _statePassed
             return
         }
-        if (manualText !== "" && _manualState !== _statePassed) {
+        if (manualText !== "") {
             // User is confirming a manual check
-            _manualState = _statePassed
+            _manualState = (_manualState === _statePassed) ? _statePending : _statePassed
         }
     }
 

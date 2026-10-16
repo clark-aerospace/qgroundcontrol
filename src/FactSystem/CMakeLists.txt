@@ -1,37 +1,31 @@
+# ============================================================================
+# Fact System Module
+# Parameter management and data binding infrastructure
+# ============================================================================
 
+target_sources(${CMAKE_PROJECT_NAME}
+    PRIVATE
+        BulkRefreshJob.cc
+        BulkRefreshJob.h
+        Fact.cc
+        Fact.h
+        FactGroup.cc
+        FactGroup.h
+        FactGroupListModel.cc
+        FactGroupListModel.h
+        FactGroupWithId.cc
+        FactGroupWithId.h
+        FactMetaData.cc
+        FactMetaData.h
+        ParameterManager.cc
+        ParameterManager.h
+        SettingsFact.cc
+        SettingsFact.h
+)
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# ----------------------------------------------------------------------------
+# Fact Controls UI
+# ----------------------------------------------------------------------------
 add_subdirectory(FactControls)
-
-set(EXTRA_SRC)
-if(BUILD_TESTING)
-	list(APPEND EXTRA_SRC
-		FactSystemTestBase.cc
-		FactSystemTestGeneric.cc
-		FactSystemTestPX4.cc
-		ParameterManagerTest.cc
-	)
-endif()
-
-add_library(FactSystem
-	Fact.cc
-	FactGroup.cc
-	FactMetaData.cc
-	FactSystem.cc
-	FactValueSliderListModel.cc
-	ParameterManager.cc
-	SettingsFact.cc
-
-	${EXTRA_SRC}
-)
-
-target_link_libraries(FactSystem
-	PRIVATE
-		qgc
-		FactControls
-)
-
-target_include_directories(FactSystem
-	INTERFACE
-		${CMAKE_CURRENT_SOURCE_DIR}
-	PUBLIC
-		FactControls
-)

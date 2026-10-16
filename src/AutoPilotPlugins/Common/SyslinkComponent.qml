@@ -1,24 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
 
-
-
-import QtQuick          2.2
-import QtQuick.Controls 1.2
-import QtQuick.Dialogs  1.2
-import QtQuick.Layouts  1.2
-
-import QGroundControl.FactSystem    1.0
-import QGroundControl.FactControls  1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Controllers   1.0
+import QGroundControl
+import QGroundControl.FactControls
+import QGroundControl.Controls
 
 SetupPage {
     id:             syslinkPage
@@ -41,7 +28,7 @@ SetupPage {
 
             QGCLabel {
                 text: qsTr("Radio Settings")
-                font.family: ScreenTools.demiboldFontFamily
+                font.bold:   true
             }
 
             Rectangle {
@@ -78,7 +65,7 @@ SetupPage {
                         Layout.fillWidth:   true
                         font.pointSize:     ScreenTools.smallFontPointSize
                         wrapMode:           Text.WordWrap
-                        text:               "Channel can be between 0 and 125"
+                        text:               qsTr("Channel can be between 0 and 125")
                     }
 
                     QGCLabel {
@@ -103,7 +90,7 @@ SetupPage {
                         Layout.fillWidth:   true
                         font.pointSize:     ScreenTools.smallFontPointSize
                         wrapMode:           Text.WordWrap
-                        text:               "Address in hex. Default is E7E7E7E7E7."
+                        text:               qsTr("Address in hex. Default is E7E7E7E7E7.")
                     }
 
 
@@ -117,13 +104,13 @@ SetupPage {
                         Layout.fillWidth:       true
                         model:                  controller.radioRates
                         currentIndex:           controller.radioRate
-                        onActivated: {
+                        onActivated: (index) => {
                             controller.radioRate = index
                         }
                     }
 
                     QGCButton {
-                        text:                           "Restore Defaults"
+                        text:                           qsTr("Restore Defaults")
                         width:                          textEditWidth
                         onClicked: {
                             controller.resetDefaults()

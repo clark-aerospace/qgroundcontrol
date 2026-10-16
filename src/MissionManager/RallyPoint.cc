@@ -1,21 +1,4 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
-#include <QStringList>
-#include <QDebug>
-
 #include "RallyPoint.h"
-
-const char* RallyPoint::_longitudeFactName =    "Longitude";
-const char* RallyPoint::_latitudeFactName =     "Latitude";
-const char* RallyPoint::_altitudeFactName =     "Altitude";
 
 QMap<QString, FactMetaData*> RallyPoint::_metaDataMap;
 
@@ -26,7 +9,10 @@ RallyPoint::RallyPoint(const QGeoCoordinate& coordinate, QObject* parent)
     , _latitudeFact(0, _latitudeFactName, FactMetaData::valueTypeDouble)
     , _altitudeFact(0, _altitudeFactName, FactMetaData::valueTypeDouble)
 {
-    setCoordinate(coordinate);
+    // Using setCoordinate() would set dirty
+    _longitudeFact.setRawValue(coordinate.longitude());
+    _latitudeFact.setRawValue(coordinate.latitude());
+    _altitudeFact.setRawValue(coordinate.altitude());
 
     _factSetup();
 }
@@ -57,27 +43,36 @@ const RallyPoint& RallyPoint::operator=(const RallyPoint& other)
 }
 
 RallyPoint::~RallyPoint()
-{    
+{
 
 }
 
 void RallyPoint::_factSetup(void)
 {
+    _cacheFactMetadata();
+
+    _latitudeFact.setMetaData(_metaDataMap[_latitudeFactName]);
+    _longitudeFact.setMetaData(_metaDataMap[_longitudeFactName]);
+    _altitudeFact.setMetaData(_metaDataMap[_altitudeFactName]);
+
+    _textFieldFacts.append(QVariant::fromValue(&_latitudeFact));
+    _textFieldFacts.append(QVariant::fromValue(&_longitudeFact));
+    _textFieldFacts.append(QVariant::fromValue(&_altitudeFact));
+
+    connect(&_latitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
+    connect(&_longitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
+    connect(&_altitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
+
+    // Raw, not cooked: a units change must not dirty the point
+    for (Fact* const fact : {&_latitudeFact, &_longitudeFact, &_altitudeFact}) {
+        connect(fact, &Fact::rawValueChanged, this, [this]() { setDirty(true); });
+    }
+}
+
+void RallyPoint::_cacheFactMetadata() {
     if (_metaDataMap.isEmpty()) {
         _metaDataMap = FactMetaData::createMapFromJsonFile(QStringLiteral(":/json/RallyPoint.FactMetaData.json"), nullptr /* metaDataParent */);
     }
-
-    _longitudeFact.setMetaData(_metaDataMap[_longitudeFactName]);
-    _latitudeFact.setMetaData(_metaDataMap[_latitudeFactName]);
-    _altitudeFact.setMetaData(_metaDataMap[_altitudeFactName]);
-
-    _textFieldFacts.append(QVariant::fromValue(&_longitudeFact));
-    _textFieldFacts.append(QVariant::fromValue(&_latitudeFact));
-    _textFieldFacts.append(QVariant::fromValue(&_altitudeFact));
-
-    connect(&_longitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
-    connect(&_latitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
-    connect(&_altitudeFact, &Fact::valueChanged, this, &RallyPoint::_sendCoordinateChanged);
 }
 
 void RallyPoint::setCoordinate(const QGeoCoordinate& coordinate)
@@ -97,6 +92,15 @@ void RallyPoint::setDirty(bool dirty)
         _dirty = dirty;
         emit dirtyChanged(dirty);
     }
+}
+
+double RallyPoint::getDefaultFactAltitude() {
+    _cacheFactMetadata();
+    auto it = _metaDataMap.find(QString(_altitudeFactName));
+    if(it != _metaDataMap.end() && (*it)->defaultValueAvailable()) {
+        return (*it)->rawDefaultValue().toDouble();
+    }
+    return 0.0;
 }
 
 QGeoCoordinate RallyPoint::coordinate(void) const

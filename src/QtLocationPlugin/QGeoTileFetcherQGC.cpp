@@ -1,91 +1,143 @@
-/****************************************************************************
-**
-** Copyright (C) 2013 Aaron McCarthy <mccarthy.aaron@gmail.com>
-** Contact: http://www.qt-project.org/legal
-**
-** This file is part of the QtLocation module of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and Digia.  For licensing terms and
-** conditions see http://qt.digia.com/licensing.  For further information
-** use the contact form at http://qt.digia.com/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 2.1 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU Lesser General Public License version 2.1 requirements
-** will be met: http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html.
-**
-** In addition, as a special exception, Digia gives you certain additional
-** rights.  These rights are described in the Digia Qt LGPL Exception
-** version 1.1, included in the file LGPL_EXCEPTION.txt in this package.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3.0 as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL included in the
-** packaging of this file.  Please review the following information to
-** ensure the GNU General Public License version 3.0 requirements will be
-** met: http://www.gnu.org/copyleft/gpl.html.
-**
-**
-** $QT_END_LICENSE$
-**
-** 2015.4.4
-** Adapted for use with QGroundControl
-**
-** Gus Grubba <mavlink@grubba.com>
-**
-****************************************************************************/
-
-#include "QGCMapEngine.h"
 #include "QGeoTileFetcherQGC.h"
-#include "QGeoMapReplyQGC.h"
 
-#include <QtCore/QLocale>
-#include <QtNetwork/QNetworkRequest>
+#include <QtLocation/private/qgeotiledmappingmanagerengine_p.h>
 #include <QtLocation/private/qgeotilespec_p.h>
+#include <QtNetwork/QNetworkRequest>
+#include <chrono>
 
-//-----------------------------------------------------------------------------
-QGeoTileFetcherQGC::QGeoTileFetcherQGC(QGeoTiledMappingManagerEngine *parent)
-    : QGeoTileFetcher(parent)
-    , _networkManager(new QNetworkAccessManager(this))
+#include "MapProvider.h"
+#include "QGCLoggingCategory.h"
+#include "QGCMapUrlEngine.h"
+#include "QGeoMapReplyQGC.h"
+#include "QGeoTiledMappingManagerEngineQGC.h"
+
+QGC_LOGGING_CATEGORY(QGeoTileFetcherQGCLog, "QtLocationPlugin.QGeoTileFetcherQGC")
+
+namespace {
+// Keep pooled sockets warm across sparse tile/terrain fetches; Qt 6.11 otherwise reaps idle ones after 2 min.
+constexpr int kConnectionCacheExpirySecs = 300;
+constexpr std::chrono::seconds kTcpKeepAliveIdle{60};
+constexpr std::chrono::seconds kTcpKeepAliveInterval{30};
+constexpr int kTcpKeepAliveProbeCount = 3;
+}  // namespace
+
+QGeoTileFetcherQGC::QGeoTileFetcherQGC(QNetworkAccessManager* networkManager, const QVariantMap& parameters,
+                                       QGeoTiledMappingManagerEngineQGC* parent)
+    : QGeoTileFetcher(parent), m_networkManager(networkManager)
 {
-    //-- Check internet status every 30 seconds or so
-    connect(&_timer, &QTimer::timeout, this, &QGeoTileFetcherQGC::timeout);
-    _timer.setSingleShot(false);
-    _timer.start(30000);
+    Q_ASSERT(networkManager);
+
+    qCDebug(QGeoTileFetcherQGCLog) << this;
+
+    // TODO: Allow useragent override again
+    /*if (parameters.contains(QStringLiteral("useragent"))) {
+        setUserAgent(parameters.value(QStringLiteral("useragent")).toString().toLatin1());
+    }*/
 }
 
-//-----------------------------------------------------------------------------
 QGeoTileFetcherQGC::~QGeoTileFetcherQGC()
 {
-
+    qCDebug(QGeoTileFetcherQGCLog) << this;
 }
 
-//-----------------------------------------------------------------------------
-QGeoTiledMapReply*
-QGeoTileFetcherQGC::getTileImage(const QGeoTileSpec &spec)
+QGeoTiledMapReply* QGeoTileFetcherQGC::getTileImage(const QGeoTileSpec& spec)
 {
-    //-- Build URL
-    QNetworkRequest request = getQGCMapEngine()->urlFactory()->getTileURL((UrlFactory::MapType)spec.mapId(), spec.x(), spec.y(), spec.zoom(), _networkManager);
-    if ( ! request.url().isEmpty() ) {
-        return new QGeoTiledMapReplyQGC(_networkManager, request, spec);
-    }
-    else {
+    const SharedMapProvider provider = UrlFactory::getMapProviderFromQtMapId(spec.mapId());
+    if (!provider) {
         return nullptr;
     }
+
+    /*if (spec.zoom() > provider->maximumZoomLevel() || spec.zoom() < provider->minimumZoomLevel()) {
+        return nullptr;
+    }*/
+
+    const QNetworkRequest request = getNetworkRequest(spec.mapId(), spec.x(), spec.y(), spec.zoom());
+    if (request.url().isEmpty()) {
+        return nullptr;
+    }
+
+    QGeoTiledMapReplyQGC* tileImage = new QGeoTiledMapReplyQGC(m_networkManager, request, spec);
+    if (!tileImage->init()) {
+        tileImage->deleteLater();
+        return nullptr;
+    }
+
+    return tileImage;
 }
 
-//-----------------------------------------------------------------------------
-void
-QGeoTileFetcherQGC::timeout()
+bool QGeoTileFetcherQGC::initialized() const
 {
-    getQGCMapEngine()->testInternet();
+    return (m_networkManager != nullptr);
+}
+
+bool QGeoTileFetcherQGC::fetchingEnabled() const
+{
+    return initialized();
+}
+
+void QGeoTileFetcherQGC::timerEvent(QTimerEvent* event)
+{
+    QGeoTileFetcher::timerEvent(event);
+}
+
+void QGeoTileFetcherQGC::handleReply(QGeoTiledMapReply* reply, const QGeoTileSpec& spec)
+{
+    if (!reply) {
+        return;
+    }
+
+    reply->deleteLater();
+
+    if (!initialized()) {
+        return;
+    }
+
+    if (reply->error() == QGeoTiledMapReply::NoError) {
+        emit tileFinished(spec, reply->mapImageData(), reply->mapImageFormat());
+    } else {
+        emit tileError(spec, reply->errorString());
+    }
+}
+
+QNetworkRequest QGeoTileFetcherQGC::getNetworkRequest(int mapId, int x, int y, int zoom)
+{
+    const SharedMapProvider mapProvider = UrlFactory::getMapProviderFromQtMapId(mapId);
+    if (!mapProvider) {
+        return QNetworkRequest();
+    }
+
+    QNetworkRequest request;
+    request.setUrl(mapProvider->getTileURL(x, y, zoom));
+    request.setPriority(QNetworkRequest::NormalPriority);
+    request.setTransferTimeout(10000);
+    // request.setOriginatingObject(this);
+
+    // Headers
+    request.setRawHeader(QByteArrayLiteral("Accept"), QByteArrayLiteral("*/*"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, s_userAgent);
+    const QByteArray referrer = mapProvider->getReferrer().toUtf8();
+    if (!referrer.isEmpty()) {
+        request.setRawHeader(QByteArrayLiteral("Referer"), referrer);
+    }
+    const QByteArray token = mapProvider->getToken();
+    if (!token.isEmpty()) {
+        request.setRawHeader(QByteArrayLiteral("User-Token"), token);
+    }
+    request.setRawHeader(QByteArrayLiteral("Connection"), QByteArrayLiteral("keep-alive"));
+    request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute, kConnectionCacheExpirySecs);
+    request.setTcpKeepAliveIdleTimeBeforeProbes(kTcpKeepAliveIdle);
+    request.setTcpKeepAliveIntervalBetweenProbes(kTcpKeepAliveInterval);
+    request.setTcpKeepAliveProbeCount(kTcpKeepAliveProbeCount);
+    // request.setRawHeader(QByteArrayLiteral("Accept-Encoding"), QByteArrayLiteral("gzip, deflate, br"));
+
+    // Attributes
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    request.setAttribute(QNetworkRequest::BackgroundRequestAttribute, true);
+    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, true);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, true);
+    request.setAttribute(QNetworkRequest::DoNotBufferUploadDataAttribute, false);
+    // request.setAttribute(QNetworkRequest::AutoDeleteReplyOnFinishAttribute, true);
+
+    return request;
 }

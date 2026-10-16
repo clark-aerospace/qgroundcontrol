@@ -1,27 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
 
-
-import QtQuick                  2.3
-import QtQuick.Controls         1.2
-import QtQuick.Controls.Styles  1.4
-import QtQuick.Dialogs          1.2
-import QtQuick.Layouts          1.2
-
-import QGroundControl               1.0
-import QGroundControl.FactSystem    1.0
-import QGroundControl.FactControls  1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Controllers   1.0
-import QGroundControl.ArduPilot     1.0
+import QGroundControl
+import QGroundControl.FactControls
+import QGroundControl.Controls
 
 SetupPage {
     id:             sensorsPage
@@ -81,10 +65,15 @@ SetupPage {
             property bool   _compassAutoRotAvailable:       controller.parameterExists(-1, "COMPASS_AUTO_ROT")
             property Fact   _compassAutoRotFact:            controller.getParameterFact(-1, "COMPASS_AUTO_ROT", false /* reportMissing */)
             property bool   _compassAutoRot:                _compassAutoRotAvailable ? _compassAutoRotFact.rawValue == 2 : false
+            property bool   _showSimpleAccelCalOption:      false
+            property bool   _doSimpleAccelCal:              false
+            property var    _gcsPosition:                    QGroundControl.positionManager.gcsPosition
+            property var    _mapPosition:                    QGroundControl.flightMapPosition
 
             function showOrientationsDialog(calType) {
-                var dialogTitle
-                var buttons = StandardButton.Ok
+                let dialogTitle
+                let dialogButtons = Dialog.Ok
+                _showSimpleAccelCalOption = false
 
                 _orientationDialogCalType = calType
                 switch (calType) {
@@ -92,13 +81,13 @@ SetupPage {
                     _orientationsDialogShowCompass = true
                     _orientationDialogHelp = orientationHelpCal
                     dialogTitle = qsTr("Calibrate Compass")
-                    buttons |= StandardButton.Cancel
+                    dialogButtons |= Dialog.Cancel
                     break
                 case _calTypeAccel:
                     _orientationsDialogShowCompass = false
                     _orientationDialogHelp = orientationHelpCal
                     dialogTitle = qsTr("Calibrate Accelerometer")
-                    buttons |= StandardButton.Cancel
+                    dialogButtons |= Dialog.Cancel
                     break
                 case _calTypeSet:
                     _orientationsDialogShowCompass = true
@@ -107,7 +96,41 @@ SetupPage {
                     break
                 }
 
-                mainWindow.showComponentDialog(orientationsDialogComponent, dialogTitle, mainWindow.showDialogDefaultWidth, buttons)
+                orientationsDialogFactory.open({ title: dialogTitle, buttons: dialogButtons })
+            }
+
+            function showSimpleAccelCalOption() {
+                _showSimpleAccelCalOption = true
+            }
+
+            // Maps the APM controller per-side done/inProgress bools to a VehicleRotationCal.CalState
+            function sideCalState(done, inProgress) {
+                if (inProgress) {
+                    return VehicleRotationCal.CalState.InProgress
+                }
+                return done ? VehicleRotationCal.CalState.Completed : VehicleRotationCal.CalState.Incomplete
+            }
+
+            function compassLabel(index) {
+                let label = qsTr("Compass %1 ").arg(index+1)
+                let addOpenParan = true
+                let addComma = false
+                if (sensorParams.compassPrimaryFactAvailable) {
+                    label += sensorParams.rgCompassPrimary[index] ? qsTr("(primary") : qsTr("(secondary")
+                    addComma = true
+                    addOpenParan = false
+                }
+                if (sensorParams.rgCompassExternalParamAvailable[index]) {
+                    if (addOpenParan) {
+                        label += "("
+                    }
+                    if (addComma) {
+                        label += qsTr(", ")
+                    }
+                    label += sensorParams.rgCompassExternal[index] ? qsTr("external") : qsTr("internal")
+                }
+                label += ")"
+                return label
             }
 
             APMSensorParams {
@@ -129,51 +152,59 @@ SetupPage {
 
                 onWaitingForCancelChanged: {
                     if (controller.waitingForCancel) {
-                        mainWindow.showComponentDialog(waitForCancelDialogComponent, qsTr("Calibration Cancel"), mainWindow.showDialogDefaultWidth, 0)
+                        waitForCancelDialogFactory.open()
                     }
                 }
 
-                onCalibrationComplete: {
+                onCalibrationComplete: (calType) => {
                     switch (calType) {
-                    case APMSensorsComponentController.CalTypeAccel:
-                        mainWindow.showComponentDialog(postCalibrationComponent, qsTr("Accelerometer calibration complete"), mainWindow.showDialogDefaultWidth, StandardButton.Ok)
+                    case MAVLink.CalibrationMag:
+                        _singleCompassSettingsComponentShowPriority = true
+                        postOnboardCompassCalibrationFactory.open()
                         break
-                    case APMSensorsComponentController.CalTypeOffboardCompass:
-                        mainWindow.showComponentDialog(postCalibrationComponent, qsTr("Compass calibration complete"), mainWindow.showDialogDefaultWidth, StandardButton.Ok)
-                        break
-                    case APMSensorsComponentController.CalTypeOnboardCompass:
-                        mainWindow.showComponentDialog(postOnboardCompassCalibrationComponent, qsTr("Calibration complete"), mainWindow.showDialogDefaultWidth, StandardButton.Ok)
+                    case MAVLink.CalibrationAccel:
+                        postCalibrationFactory.open()
                         break
                     }
                 }
 
-                onSetAllCalButtonsEnabled: {
+                onSetAllCalButtonsEnabled: (enabled) => {
                     buttonColumn.enabled = enabled
                 }
-            }
 
-            Component.onCompleted: {
-                var usingUDP = controller.usingUDPLink()
-                var isSub = QGroundControl.multiVehicleManager.activeVehicle.sub;
-                if (usingUDP && !isSub) {
-                    mainWindow.showMessageDialog(qsTr("Sensor Calibration"), qsTr("Performing sensor calibration over a WiFi connection can be unreliable. If you run into problems try using a direct USB connection instead."))
+                onCalibrationActiveChanged: {
+                    if (controller.calibrationActive) {
+                        globals.navigationBlockedReason = qsTr("Complete or cancel the current calibration first")
+                    } else {
+                        globals.navigationBlockedReason = ""
+                    }
                 }
             }
 
+            Component.onDestruction: globals.navigationBlockedReason = ""
+
             QGCPalette { id: qgcPal; colorGroupEnabled: true }
+
+            QGCPopupDialogFactory {
+                id: waitForCancelDialogFactory
+
+                dialogComponent: waitForCancelDialogComponent
+            }
 
             Component {
                 id: waitForCancelDialogComponent
 
-                QGCViewMessage {
-                    message: qsTr("Waiting for Vehicle to response to Cancel. This may take a few seconds.")
+                QGCSimpleMessageDialog {
+                    title:      qsTr("Calibration Cancel")
+                    text:       qsTr("Waiting for Vehicle to response to Cancel. This may take a few seconds.")
+                    buttons:    0
 
                     Connections {
                         target: controller
 
                         onWaitingForCancelChanged: {
                             if (!controller.waitingForCancel) {
-                                hideDialog()
+                                close()
                             }
                         }
                     }
@@ -184,10 +215,12 @@ SetupPage {
                 id: singleCompassOnboardResultsComponent
 
                 Column {
-                    anchors.left:   parent.left
-                    anchors.right:  parent.right
+                    anchors.left:   parent ? parent.left : undefined
+                    anchors.right:  parent ? parent.right : undefined
                     spacing:        Math.round(ScreenTools.defaultFontPixelHeight / 2)
                     visible:        sensorParams.rgCompassAvailable[index] && sensorParams.rgCompassUseFact[index].value
+
+                    property int _index: index
 
                     property real greenMaxThreshold:   8 * (sensorParams.rgCompassExternal[index] ? 1 : 2)
                     property real yellowMaxThreshold:  15 * (sensorParams.rgCompassExternal[index] ? 1 : 2)
@@ -230,39 +263,35 @@ SetupPage {
                         }
                     }
 
-                    Column {
+                    Loader {
                         anchors.leftMargin: ScreenTools.defaultFontPixelWidth * 2
                         anchors.left:       parent.left
                         anchors.right:      parent.right
-                        spacing:            Math.round(ScreenTools.defaultFontPixelHeight / 4)
+                        sourceComponent:    singleCompassSettingsComponent
 
-                        QGCLabel {
-                            text: qsTr("Compass ") + (index+1) + " " +
-                                  (sensorParams.rgCompassPrimary[index] ? qsTr("(primary") : qsTr("(secondary")) +
-                                  (sensorParams.rgCompassExternalParamAvailable[index] ?
-                                       (sensorParams.rgCompassExternal[index] ? qsTr(", external") : qsTr(", internal" )) :
-                                       "") +
-                                  ")"
-                        }
-
-                        FactCheckBox {
-                            text:       qsTr("Use Compass")
-                            fact:       sensorParams.rgCompassUseFact[index]
-                            visible:    sensorParams.rgCompassUseParamAvailable[index] && !sensorParams.rgCompassPrimary[index]
-                        }
+                        property int index: _index
                     }
                 }
+            }
+
+            QGCPopupDialogFactory {
+                id: postOnboardCompassCalibrationFactory
+
+                dialogComponent: postOnboardCompassCalibrationComponent
             }
 
             Component {
                 id: postOnboardCompassCalibrationComponent
 
-                QGCViewDialog {
+                QGCPopupDialog {
+                    id:         postOnboardCompassCalibrationDialog
+                    title:      qsTr("Calibration complete")
+                    buttons:    Dialog.Ok
+
                     Column {
-                        anchors.margins:    ScreenTools.defaultFontPixelWidth
-                        anchors.left:       parent.left
-                        anchors.right:      parent.right
-                        spacing:            ScreenTools.defaultFontPixelHeight
+                        objectName: "postOnboardCompassCalibrationDialog"
+                        width:      40 * ScreenTools.defaultFontPixelWidth
+                        spacing:    ScreenTools.defaultFontPixelHeight
 
                         Repeater {
                             model:      3
@@ -279,27 +308,27 @@ SetupPage {
                                             qsTr("- Red indicates a compass which should not be used.\n\n") +
                                             qsTr("YOU MUST REBOOT YOUR VEHICLE AFTER EACH CALIBRATION.")
                         }
-
-                        QGCButton {
-                            text:       qsTr("Reboot Vehicle")
-                            onClicked: {
-                                controller.vehicle.rebootVehicle()
-                                hideDialog()
-                            }
-                        }
                     }
                 }
+            }
+
+            QGCPopupDialogFactory {
+                id: postCalibrationFactory
+
+                dialogComponent: postCalibrationComponent
             }
 
             Component {
                 id: postCalibrationComponent
 
-                QGCViewDialog {
+                QGCPopupDialog {
+                    id:     postCalibrationDialog
+                    title:  qsTr("Calibration complete")
+
                     Column {
-                        anchors.margins:    ScreenTools.defaultFontPixelWidth
-                        anchors.left:       parent.left
-                        anchors.right:      parent.right
-                        spacing:            ScreenTools.defaultFontPixelHeight
+                        objectName: "postCalibrationDialog"
+                        width:      40 * ScreenTools.defaultFontPixelWidth
+                        spacing:    ScreenTools.defaultFontPixelHeight
 
                         QGCLabel {
                             anchors.left:   parent.left
@@ -307,18 +336,11 @@ SetupPage {
                             wrapMode:       Text.WordWrap
                             text:           qsTr("YOU MUST REBOOT YOUR VEHICLE AFTER EACH CALIBRATION.")
                         }
-
-                        QGCButton {
-                            text:       qsTr("Reboot Vehicle")
-                            onClicked: {
-                                controller.vehicle.rebootVehicle()
-                                hideDialog()
-                            }
-                       }
                     }
                 }
             }
 
+            property bool _singleCompassSettingsComponentShowPriority: true
             Component {
                 id: singleCompassSettingsComponent
 
@@ -327,12 +349,10 @@ SetupPage {
                     visible: sensorParams.rgCompassAvailable[index]
 
                     QGCLabel {
-                        text: qsTr("Compass ") + (index+1) + " " +
-                              (sensorParams.rgCompassPrimary[index] ? qsTr("(primary") :qsTr( "(secondary")) +
-                              (sensorParams.rgCompassExternalParamAvailable[index] ?
-                                   (sensorParams.rgCompassExternal[index] ? qsTr(", external") : qsTr(", internal") ) :
-                                   "") +
-                              ")"
+                        text: compassLabel(index)
+                    }
+                    APMSensorIdDecoder {
+                        fact: sensorParams.rgCompassId[index]
                     }
 
                     Column {
@@ -340,10 +360,44 @@ SetupPage {
                         anchors.left:       parent.left
                         spacing:            Math.round(ScreenTools.defaultFontPixelHeight / 4)
 
-                        FactCheckBox {
-                            text:       qsTr("Use Compass")
-                            fact:       sensorParams.rgCompassUseFact[index]
-                            visible:    sensorParams.rgCompassUseParamAvailable[index] && !sensorParams.rgCompassPrimary[index]
+                        RowLayout {
+                            spacing: ScreenTools.defaultFontPixelWidth
+
+                            FactCheckBox {
+                                id:         useCompassCheckBox
+                                text:       qsTr("Use Compass")
+                                fact:       sensorParams.rgCompassUseFact[index]
+                                visible:    sensorParams.rgCompassUseParamAvailable[index] && !sensorParams.rgCompassPrimary[index]
+                            }
+
+                            QGCComboBox {
+                                model:      [ qsTr("Priority 1"), qsTr("Priority 2"), qsTr("Priority 3"), qsTr("Not Set") ]
+                                visible:    _singleCompassSettingsComponentShowPriority && sensorParams.compassPrioFactsAvailable && useCompassCheckBox.visible && useCompassCheckBox.checked
+
+                                property int _compassIndex: index
+
+                                function selectPriorityfromParams() {
+                                    currentIndex = 3
+                                    let compassId = sensorParams.rgCompassId[_compassIndex].rawValue
+                                    for (let prioIndex=0; prioIndex<3; prioIndex++) {
+                                        if (compassId == sensorParams.rgCompassPrio[prioIndex].rawValue) {
+                                            currentIndex = prioIndex
+                                            break
+                                        }
+                                    }
+                                }
+
+                                Component.onCompleted: selectPriorityfromParams()
+
+                                onActivated: (index) => {
+                                    if (index == 3) {
+                                        // User cannot select Not Set
+                                        selectPriorityfromParams()
+                                    } else {
+                                        sensorParams.rgCompassPrio[index].rawValue = sensorParams.rgCompassId[_compassIndex].rawValue
+                                    }
+                                }
+                            }
                         }
 
                         Column {
@@ -361,168 +415,256 @@ SetupPage {
                 }
             }
 
+            QGCPopupDialogFactory {
+                id: orientationsDialogFactory
+
+                dialogComponent: orientationsDialogComponent
+            }
+
             Component {
                 id: orientationsDialogComponent
 
-                QGCViewDialog {
-                    id: orientationsDialog
-
-                    function accept() {
-                        if (_orientationDialogCalType == _calTypeAccel) {
-                            controller.calibrateAccel()
-                        } else if (_orientationDialogCalType == _calTypeCompass) {
-                            controller.calibrateCompass()
-                        }
-                        orientationsDialog.hideDialog()
+                QGCPopupDialog {
+                    function compassMask () {
+                        let mask = 0
+                        mask |=  (0 + (sensorParams.rgCompassPrio[0].rawValue !== 0)) << 0
+                        mask |=  (0 + (sensorParams.rgCompassPrio[1].rawValue !== 0)) << 1
+                        mask |=  (0 + (sensorParams.rgCompassPrio[2].rawValue !== 0)) << 2
+                        return mask
                     }
 
-                    QGCFlickable {
-                        anchors.fill:   parent
-                        contentHeight:  columnLayout.height
-                        clip:           true
+                    onAccepted: {
+                        if (_orientationDialogCalType == _calTypeAccel) {
+                            controller.calibrateAccel(_doSimpleAccelCal)
+                        } else if (_orientationDialogCalType == _calTypeCompass) {
+                            if (!northCalibrationCheckBox.checked) {
+                                controller.calibrateCompass()
+                            } else {
+                                let lat = parseFloat(northCalLat.text)
+                                let lon = parseFloat(northCalLon.text)
+                                if (useMapPositionCheckbox.checked) {
+                                    lat = _mapPosition.latitude
+                                    lon = _mapPosition.longitude
+                                }
+                                if (useGcsPositionCheckbox.checked) {
+                                    lat = _gcsPosition.latitude
+                                    lon = _gcsPosition.longitude
+                                }
+                                if (isNaN(lat) || isNaN(lon)) {
+                                    return
+                                }
+                                controller.calibrateCompassNorth(lat, lon, compassMask())
+                            }
+                        }
+                    }
+
+                    Column {
+                        width:      40 * ScreenTools.defaultFontPixelWidth
+                        spacing:    ScreenTools.defaultFontPixelHeight
+
+                        QGCLabel {
+                            width:      parent.width
+                            wrapMode:   Text.WordWrap
+                            text:       _orientationDialogHelp
+                        }
 
                         Column {
-                            id:                 columnLayout
-                            anchors.margins:    ScreenTools.defaultFontPixelWidth
-                            anchors.left:       parent.left
-                            anchors.right:      parent.right
-                            anchors.top:        parent.top
-                            spacing:            ScreenTools.defaultFontPixelHeight
+                            QGCLabel { text: qsTr("Autopilot Rotation:") }
+
+                            FactComboBox {
+                                width:      rotationColumnWidth
+                                indexModel: false
+                                fact:       boardRot
+                            }
+                        }
+
+                        Column {
+
+                            visible: _orientationDialogCalType == _calTypeAccel
+                            spacing: ScreenTools.defaultFontPixelHeight
 
                             QGCLabel {
                                 width:      parent.width
                                 wrapMode:   Text.WordWrap
-                                text:       _orientationDialogHelp
+                                text: qsTr("Simple accelerometer calibration is less precise but allows calibrating without rotating the vehicle. Check this if you have a large/heavy vehicle.")
                             }
 
-                            Column {
-                                QGCLabel { text: qsTr("Autopilot Rotation:") }
+                            QGCCheckBox {
+                                text: qsTr("Simple Accelerometer Calibration")
+                                onClicked: _doSimpleAccelCal = this.checked
+                            }
+                        }
 
-                                FactComboBox {
-                                    width:      rotationColumnWidth
-                                    indexModel: false
-                                    fact:       boardRot
-                                }
+                        Repeater {
+                            model:      _orientationsDialogShowCompass ? 3 : 0
+                            delegate:   singleCompassSettingsComponent
+                        }
+
+                        QGCLabel {
+                            id:         magneticDeclinationLabel
+                            width:      parent.width
+                            visible:    globals.activeVehicle.sub && _orientationsDialogShowCompass
+                            text:       qsTr("Magnetic Declination")
+                        }
+
+                        Column {
+                            visible:            magneticDeclinationLabel.visible
+                            anchors.margins:    ScreenTools.defaultFontPixelWidth
+                            anchors.left:       parent.left
+                            anchors.right:      parent.right
+                            spacing:            ScreenTools.defaultFontPixelHeight
+
+                            QGCCheckBox {
+                                id:                           manualMagneticDeclinationCheckBox
+                                text:                         qsTr("Manual Magnetic Declination")
+                                property Fact autoDecFact:    controller.getParameterFact(-1, "COMPASS_AUTODEC")
+                                property int manual:          0
+                                property int automatic:       1
+
+                                checked:    autoDecFact.rawValue === manual
+                                onClicked:  autoDecFact.value = (checked ? manual : automatic)
                             }
 
-                            Repeater {
-                                model:      _orientationsDialogShowCompass ? 3 : 0
-                                delegate:   singleCompassSettingsComponent
+                            FactTextField {
+                                fact:       sensorParams.declinationFact
+                                enabled:    manualMagneticDeclinationCheckBox.checked
                             }
-                        } // Column
-                    } // QGCFlickable
-                } // QGCViewDialog
-            } // Component - orientationsDialogComponent
+                        }
+
+                        Item { height: ScreenTools.defaultFontPixelHeight; width: 10 } // spacer
+
+                        QGCLabel {
+                            id:         northCalibrationLabel
+                            width:      parent.width
+                            visible:    _orientationsDialogShowCompass
+                            wrapMode:   Text.WordWrap
+                            text:       qsTr("Fast compass calibration given vehicle position and yaw. This ") +
+                                        qsTr("results in zero diagonal and off-diagonal elements, so is only ") +
+                                        qsTr("suitable for vehicles where the field is close to spherical. It is ") +
+                                        qsTr("useful for large vehicles where moving the vehicle to calibrate it ") +
+                                        qsTr("is difficult. Point the vehicle North before using it.")
+                        }
+
+                        Column {
+                            visible:            northCalibrationLabel.visible
+                            anchors.margins:    ScreenTools.defaultFontPixelWidth
+                            anchors.left:       parent.left
+                            anchors.right:      parent.right
+                            spacing:            ScreenTools.defaultFontPixelHeight
+
+                            QGCCheckBox {
+                                id:             northCalibrationCheckBox
+                                visible:        northCalibrationLabel.visible
+                                text:           qsTr("Fast Calibration")
+                            }
+
+                            QGCLabel {
+                                id:         northCalibrationManualPosition
+                                width:      parent.width
+                                visible:    northCalibrationCheckBox.checked && !globals.activeVehicle.coordinate.isValid
+                                wrapMode:   Text.WordWrap
+                                text:       qsTr("Vehicle has no Valid positon, please provide it")
+                            }
+
+                            QGCCheckBox {
+                                visible:    northCalibrationManualPosition.visible && _gcsPosition.isValid
+                                id:         useGcsPositionCheckbox
+                                text:       qsTr("Use GCS position instead")
+                                checked:    _gcsPosition.isValid
+                            }
+                            QGCCheckBox {
+                                visible:    northCalibrationManualPosition.visible && !_gcsPosition.isValid
+                                id:         useMapPositionCheckbox
+                                text:       qsTr("Use current map position instead")
+                            }
+
+                            QGCLabel {
+                                width:      parent.width
+                                visible:    useMapPositionCheckbox.checked
+                                wrapMode:   Text.WordWrap
+                                //: %1 is latitude, %2 is longitude
+                                text:       qsTr("Lat: %1 Lon: %2").arg(_mapPosition.latitude.toFixed(4)).arg(_mapPosition.longitude.toFixed(4))
+                            }
+
+                            FactTextField {
+                                id:         northCalLat
+                                visible:    !useGcsPositionCheckbox.checked && !useMapPositionCheckbox.checked && northCalibrationCheckBox.checked
+                                text:       "0.00"
+                                textColor:  isNaN(parseFloat(text)) ? qgcPal.warningText: qgcPal.textFieldText
+                                enabled:    !useGcsPositionCheckbox.checked
+                            }
+                            FactTextField {
+                                id:         northCalLon
+                                visible:    !useGcsPositionCheckbox.checked && !useMapPositionCheckbox.checked && northCalibrationCheckBox.checked
+                                text:       "0.00"
+                                textColor:  isNaN(parseFloat(text)) ? qgcPal.warningText: qgcPal.textFieldText
+                                enabled:    !useGcsPositionCheckbox.checked
+                            }
+
+                        }
+                    }
+                }
+            }
+
+            QGCPopupDialogFactory {
+                id: compassMotDialogFactory
+
+                dialogComponent: compassMotDialogComponent
+            }
 
             Component {
                 id: compassMotDialogComponent
 
-                QGCViewDialog {
-                    id: compassMotDialog
+                QGCPopupDialog {
+                    title:      qsTr("Compass Motor Interference Calibration")
+                    buttons:    Dialog.Cancel | Dialog.Ok
 
-                    function accept() {
-                        controller.calibrateMotorInterference()
-                        compassMotDialog.hideDialog()
+                    onAccepted: controller.calibrateMotorInterference()
+
+                    Column {
+                        width:      40 * ScreenTools.defaultFontPixelWidth
+                        spacing:    ScreenTools.defaultFontPixelHeight
+
+                        QGCLabel {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            wrapMode:       Text.WordWrap
+                            text:           qsTr("This is recommended for vehicles that have only an internal compass and on vehicles where there is significant interference on the compass from the motors, power wires, etc. ") +
+                                            qsTr("CompassMot only works well if you have a battery current monitor because the magnetic interference is linear with current drawn. ") +
+                                            qsTr("It is technically possible to set-up CompassMot using throttle but this is not recommended.")
+                        }
+
+                        QGCLabel {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            wrapMode:       Text.WordWrap
+                            text:           qsTr("Disconnect your props, flip them over and rotate them one position around the frame. ") +
+                                            qsTr("In this configuration they should push the copter down into the ground when the throttle is raised.")
+                        }
+
+                        QGCLabel {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            wrapMode:       Text.WordWrap
+                            text:           qsTr("Secure the copter (perhaps with tape) so that it does not move.")
+                        }
+
+                        QGCLabel {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            wrapMode:       Text.WordWrap
+                            text:           qsTr("Turn on your transmitter and keep throttle at zero.")
+                        }
+
+                        QGCLabel {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            wrapMode:       Text.WordWrap
+                            text:           qsTr("Click Ok to start CompassMot calibration.")
+                        }
                     }
-
-                    QGCFlickable {
-                        anchors.fill:   parent
-                        contentHeight:  columnLayout.height
-                        clip:           true
-
-                        Column {
-                            id:                 columnLayout
-                            anchors.margins:    ScreenTools.defaultFontPixelWidth
-                            anchors.left:       parent.left
-                            anchors.right:      parent.right
-                            anchors.top:        parent.top
-                            spacing:            ScreenTools.defaultFontPixelHeight
-
-                            QGCLabel {
-                                anchors.left:   parent.left
-                                anchors.right:  parent.right
-                                wrapMode:       Text.WordWrap
-                                text:           qsTr("This is recommended for vehicles that have only an internal compass and on vehicles where there is significant interference on the compass from the motors, power wires, etc. ") +
-                                                qsTr("CompassMot only works well if you have a battery current monitor because the magnetic interference is linear with current drawn. ") +
-                                                qsTr("It is technically possible to set-up CompassMot using throttle but this is not recommended.")
-                            }
-
-                            QGCLabel {
-                                anchors.left:   parent.left
-                                anchors.right:  parent.right
-                                wrapMode:       Text.WordWrap
-                                text:           qsTr("Disconnect your props, flip them over and rotate them one position around the frame. ") +
-                                                qsTr("In this configuration they should push the copter down into the ground when the throttle is raised.")
-                            }
-
-                            QGCLabel {
-                                anchors.left:   parent.left
-                                anchors.right:  parent.right
-                                wrapMode:       Text.WordWrap
-                                text:           qsTr("Secure the copter (perhaps with tape) so that it does not move.")
-                            }
-
-                            QGCLabel {
-                                anchors.left:   parent.left
-                                anchors.right:  parent.right
-                                wrapMode:       Text.WordWrap
-                                text:           qsTr("Turn on your transmitter and keep throttle at zero.")
-                            }
-
-                            QGCLabel {
-                                anchors.left:   parent.left
-                                anchors.right:  parent.right
-                                wrapMode:       Text.WordWrap
-                                text:           qsTr("Click Ok to start CompassMot calibration.")
-                            }
-                        } // Column
-                    } // QGCFlickable
-                } // QGCViewDialog
-            } // Component - compassMotDialogComponent
-
-            Component {
-                id: levelHorizonDialogComponent
-
-                QGCViewDialog {
-                    id: levelHorizonDialog
-
-                    function accept() {
-                        controller.levelHorizon()
-                        levelHorizonDialog.hideDialog()
-                    }
-
-                    QGCLabel {
-                        anchors.left:   parent.left
-                        anchors.right:  parent.right
-                        wrapMode:       Text.WordWrap
-                        text:           qsTr("To level the horizon you need to place the vehicle in its level flight position and press Ok.")
-                    }
-                } // QGCViewDialog
-            } // Component - levelHorizonDialogComponent
-
-            Component {
-                id: calibratePressureDialogComponent
-
-                QGCViewDialog {
-                    id: calibratePressureDialog
-
-                    function accept() {
-                        controller.calibratePressure()
-                        calibratePressureDialog.hideDialog()
-                    }
-
-                    QGCLabel {
-                        anchors.left:   parent.left
-                        anchors.right:  parent.right
-                        wrapMode:       Text.WordWrap
-                        text:           _helpText
-
-                        readonly property string _altText:      activeVehicle.sub ? qsTr("depth") : qsTr("altitude")
-                        readonly property string _helpText:     qsTr("Pressure calibration will set the %1 to zero at the current pressure reading. %2").arg(_altText).arg(_helpTextFW)
-                        readonly property string _helpTextFW:   activeVehicle.fixedWing ? qsTr("To calibrate the airspeed sensor shield it from the wind. Do not touch the sensor or obstruct any holes during the calibration.") : ""
-                    }
-                } // QGCViewDialog
-            } // Component - calibratePressureDialogComponent
+                }
+            }
 
             QGCFlickable {
                 id:             buttonFlickable
@@ -540,21 +682,26 @@ SetupPage {
                     Layout.alignment:   Qt.AlignLeft | Qt.AlignTop
 
                     IndicatorButton {
+                        objectName:     "sensorsSetup_calibrateAccel"
                         width:          _buttonWidth
                         text:           qsTr("Accelerometer")
                         indicatorGreen: !accelCalNeeded
 
-                        onClicked: showOrientationsDialog(_calTypeAccel)
+                        onClicked: function () {
+                            showOrientationsDialog(_calTypeAccel);
+                            showSimpleAccelCalOption();
+                        }
                     }
 
                     IndicatorButton {
+                        objectName:     "sensorsSetup_calibrateCompass"
                         width:          _buttonWidth
                         text:           qsTr("Compass")
                         indicatorGreen: !compassCalNeeded
 
                         onClicked: {
                             if (controller.accelSetupNeeded) {
-                                mainWindow.showMessageDialog(qsTr("Calibrate Compass"), qsTr("Accelerometer must be calibrated prior to Compass."))
+                                QGroundControl.showMessageDialog(sensorsPage, qsTr("Calibrate Compass"), qsTr("Accelerometer must be calibrated prior to Compass."))
                             } else {
                                 showOrientationsDialog(_calTypeCompass)
                             }
@@ -569,27 +716,44 @@ SetupPage {
 
                         onClicked: {
                             if (controller.accelSetupNeeded) {
-                                mainWindow.showMessageDialog(_levelHorizonText, qsTr("Accelerometer must be calibrated prior to Level Horizon."))
+                                QGroundControl.showMessageDialog(sensorsPage, _levelHorizonText, qsTr("Accelerometer must be calibrated prior to Level Horizon."))
                             } else {
-                                mainWindow.showComponentDialog(levelHorizonDialogComponent, _levelHorizonText, mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Ok)
+                                QGroundControl.showMessageDialog(sensorsPage, _levelHorizonText,
+                                                             qsTr("To level the horizon you need to place the vehicle in its level flight position and press Ok."),
+                                                             Dialog.Cancel | Dialog.Ok,
+                                                             function() { controller.levelHorizon() })
                             }
                         }
                     }
 
                     QGCButton {
                         width:      _buttonWidth
-                        text:       _calibratePressureText
-                        onClicked:  mainWindow.showComponentDialog(calibratePressureDialogComponent, _calibratePressureText, mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Ok)
+                        text:       qsTr("Gyro")
+                        visible:    globals.activeVehicle && (globals.activeVehicle.multiRotor | globals.activeVehicle.rover | globals.activeVehicle.sub)
+                        onClicked:  QGroundControl.showMessageDialog(sensorsPage, qsTr("Calibrate Gyro"),
+                                                                 qsTr("For Gyroscope calibration you will need to place your vehicle on a surface and leave it still.\n\nClick Ok to start calibration."),
+                                                                 Dialog.Cancel | Dialog.Ok,
+                                                                 function() { controller.calibrateGyro() })
+                    }
 
-                        readonly property string _calibratePressureText: activeVehicle.fixedWing ? qsTr("Cal Baro/Airspeed") : qsTr("Calibrate Pressure")
+                    QGCButton {
+                        width:      _buttonWidth
+                        text:       _calibratePressureText
+                        onClicked:  QGroundControl.showMessageDialog(sensorsPage, _calibratePressureText,
+                                                                 qsTr("Pressure calibration will set the %1 to zero at the current pressure reading. %2").arg(_altText).arg(_helpTextFW),
+                                                                 Dialog.Cancel | Dialog.Ok,
+                                                                 function() { controller.calibratePressure() })
+
+                        readonly property string _altText:                  globals.activeVehicle.sub ? qsTr("depth") : qsTr("altitude")
+                        readonly property string _helpTextFW:               globals.activeVehicle.fixedWing ? qsTr("To calibrate the airspeed sensor shield it from the wind. Do not touch the sensor or obstruct any holes during the calibration.") : ""
+                        readonly property string _calibratePressureText:    globals.activeVehicle.fixedWing ? qsTr("Baro/Airspeed") : qsTr("Pressure")
                     }
 
                     QGCButton {
                         width:      _buttonWidth
                         text:       qsTr("CompassMot")
-                        visible:    activeVehicle ? activeVehicle.supportsMotorInterference : false
-
-                        onClicked:  mainWindow.showComponentDialog(compassMotDialogComponent, qsTr("CompassMot - Compass Motor Interference Calibration"), mainWindow.showDialogFullWidth, StandardButton.Cancel | StandardButton.Ok)
+                        visible:    globals.activeVehicle ? globals.activeVehicle.supports.motorInterference : false
+                        onClicked:  compassMotDialogFactory.open()
                     }
 
                     QGCButton {
@@ -608,6 +772,7 @@ SetupPage {
 
                     QGCButton {
                         id:         nextButton
+                        objectName: "sensorsSetup_nextButton"
                         width:      _buttonWidth
                         text:       qsTr("Next")
                         enabled:    false
@@ -615,11 +780,12 @@ SetupPage {
                     }
 
                     QGCButton {
-                        id:         cancelButton
-                        width:      _buttonWidth
-                        text:       qsTr("Cancel")
-                        enabled:    false
-                        onClicked:  controller.cancelCalibration()
+                        id:             cancelButton
+                        objectName:     "sensorsSetup_cancelButton"
+                        width:          _buttonWidth
+                        text:           qsTr("Cancel")
+                        enabled:        false
+                        onClicked:      controller.cancelCalibration()
                     }
                 }
             } // QGCFlickable - buttons
@@ -634,6 +800,7 @@ SetupPage {
 
                 ProgressBar {
                     id:             progressBar
+                    objectName:     "sensorsSetup_progressBar"
                     anchors.left:   parent.left
                     anchors.right:  parent.right
                 }
@@ -649,13 +816,9 @@ SetupPage {
                         id:             statusTextArea
                         anchors.fill:   parent
                         readOnly:       true
-                        frameVisible:   false
                         text:           statusTextAreaDefaultText
-
-                        style: TextAreaStyle {
-                            textColor:          qgcPal.text
-                            backgroundColor:    qgcPal.windowShade
-                        }
+                        color:          qgcPal.text
+                        background:     Rectangle { color: qgcPal.windowShade }
                     }
 
                     Rectangle {
@@ -686,56 +849,56 @@ SetupPage {
                             property real indicatorHeight:  (height / 2) - spacing
 
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_downSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalDownSideVisible
-                                calValid:           controller.orientationCalDownSideDone
-                                calInProgress:      controller.orientationCalDownSideInProgress
+                                calState:           sideCalState(controller.orientationCalDownSideDone, controller.orientationCalDownSideInProgress)
                                 calInProgressText:  controller.orientationCalDownSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleDown.png"
                             }
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_leftSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalLeftSideVisible
-                                calValid:           controller.orientationCalLeftSideDone
-                                calInProgress:      controller.orientationCalLeftSideInProgress
+                                calState:           sideCalState(controller.orientationCalLeftSideDone, controller.orientationCalLeftSideInProgress)
                                 calInProgressText:  controller.orientationCalLeftSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleLeft.png"
                             }
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_rightSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalRightSideVisible
-                                calValid:           controller.orientationCalRightSideDone
-                                calInProgress:      controller.orientationCalRightSideInProgress
+                                calState:           sideCalState(controller.orientationCalRightSideDone, controller.orientationCalRightSideInProgress)
                                 calInProgressText:  controller.orientationCalRightSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleRight.png"
                             }
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_noseDownSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalNoseDownSideVisible
-                                calValid:           controller.orientationCalNoseDownSideDone
-                                calInProgress:      controller.orientationCalNoseDownSideInProgress
+                                calState:           sideCalState(controller.orientationCalNoseDownSideDone, controller.orientationCalNoseDownSideInProgress)
                                 calInProgressText:  controller.orientationCalNoseDownSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleNoseDown.png"
                             }
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_tailDownSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalTailDownSideVisible
-                                calValid:           controller.orientationCalTailDownSideDone
-                                calInProgress:      controller.orientationCalTailDownSideInProgress
+                                calState:           sideCalState(controller.orientationCalTailDownSideDone, controller.orientationCalTailDownSideInProgress)
                                 calInProgressText:  controller.orientationCalTailDownSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleTailDown.png"
                             }
                             VehicleRotationCal {
+                                objectName:         "sensorsCal_upsideDownSide"
                                 width:              parent.indicatorWidth
                                 height:             parent.indicatorHeight
                                 visible:            controller.orientationCalUpsideDownSideVisible
-                                calValid:           controller.orientationCalUpsideDownSideDone
-                                calInProgress:      controller.orientationCalUpsideDownSideInProgress
+                                calState:           sideCalState(controller.orientationCalUpsideDownSideDone, controller.orientationCalUpsideDownSideInProgress)
                                 calInProgressText:  controller.orientationCalUpsideDownSideRotate ? qsTr("Rotate") : qsTr("Hold Still")
                                 imageSource:        "qrc:///qmlimages/VehicleUpsideDown.png"
                             }

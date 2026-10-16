@@ -1,32 +1,20 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
-#ifndef SENSORSCOMPONENT_H
-#define SENSORSCOMPONENT_H
+#pragma once
 
 #include "VehicleComponent.h"
-
-/// @file
-///     @brief The Sensors VehicleComponent is used to calibrate the the various sensors associated with the board.
-///     @author Don Gagne <don@thegagnes.com>
 
 class SensorsComponent : public VehicleComponent
 {
     Q_OBJECT
-    
+
 public:
     SensorsComponent(Vehicle* vehicle, AutoPilotPlugin* autopilot, QObject* parent = nullptr);
-    
+
+    Q_PROPERTY(bool airspeedCalSupported    READ _airspeedCalSupported  STORED false NOTIFY setupCompleteChanged)
+    Q_PROPERTY(bool airspeedCalRequired     READ _airspeedCalRequired   STORED false NOTIFY setupCompleteChanged)
+
     // Virtuals from VehicleComponent
     QStringList setupCompleteChangedTriggerList(void) const override;
-    
+
     // Virtuals from VehicleComponent
     virtual QString name(void) const override;
     virtual QString description(void) const override;
@@ -35,18 +23,23 @@ public:
     virtual bool setupComplete(void) const override;
     virtual QUrl setupSource(void) const override;
     virtual QUrl summaryQmlSource(void) const override;
-    
+    QStringList sectionIds() const override;
+    QString sectionDisplayName(const QString& sectionId) const override;
+    bool showFirstSectionOnRootClick() const override { return true; }
+    bool sectionSetupComplete(const QString &sectionId) const override;
+
 private:
+    bool _airspeedCalSupported  (void) const;
+    bool _airspeedCalRequired   (void) const;
+
     const QString   _name;
     QVariantList    _summaryItems;
     QStringList     _deviceIds;
+    QStringList     _airspeedCalTriggerParams;
 
-    static const char* _airspeedDisabledParam;
-    static const char* _airspeedBreakerParam;
-    static const char* _airspeedCalParam;
-
-    static const char* _magEnabledParam;
-    static const char* _magCalParam;
+    static constexpr const char* _airspeedBreakerParam = "CBRK_AIRSPD_CHK";
+    static constexpr const char* _airspeedDisabledParam = "FW_ARSP_MODE";
+    static constexpr const char* _airspeedCalParam = "SENS_DPRES_OFF";
+    static constexpr const char* _magEnabledParam = "SYS_HAS_MAG";
+    static constexpr const char* _magCalParam = "CAL_MAG0_ID";
 };
-
-#endif

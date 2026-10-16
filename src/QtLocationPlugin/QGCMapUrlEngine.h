@@ -1,131 +1,55 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+#pragma once
 
+#include <QtCore/QByteArrayView>
+#include <QtCore/QList>
+#include <QtCore/QString>
+#include <QtCore/QStringList>
+#include <QtCore/QStringView>
+#include <QtCore/QUrl>
 
-/**
- *  @file
- *  @author Gus Grubba <mavlink@grubba.com>
- */
+#include <memory>
 
-#ifndef QGC_MAP_URL_ENGINE_H
-#define QGC_MAP_URL_ENGINE_H
+#include "QGCTileSet.h"
 
-#include <QString>
-#include <QPoint>
-#include <QByteArray>
-#include <QNetworkProxy>
-#include <QNetworkReply>
-#include <QMutex>
+class MapProvider;
+class ElevationProvider;
 
-#define MAX_MAP_ZOOM (20.0)
-
-class UrlFactory : public QObject {
-    Q_OBJECT
+class UrlFactory
+{
 public:
+    static QString getImageFormat(QStringView type, QByteArrayView image);
+    static QString getImageFormat(int qtMapId, QByteArrayView image);
 
-    enum MapType
-    {
-        Invalid                 = -1,
+    static QUrl getTileURL(QStringView type, int x, int y, int zoom);
+    static QUrl getTileURL(int qtMapId, int x, int y, int zoom);
 
-        GoogleMap               = 1,
-        GoogleSatellite         = 4,
-        GoogleLabels            = 8,
-        GoogleTerrain           = 16,
-        GoogleHybrid            = 20,
+    static quint32 averageSizeForType(QStringView type);
 
-        OpenStreetMap           = 32,
-        OpenStreetOsm           = 33,
-        OpenStreetMapSurfer     = 34,
-        OpenStreetMapSurferTerrain=35,
+    static bool isElevation(int qtMapId);
 
-        StatkartTopo            = 100,
-        EniroTopo               = 110,
+    static int long2tileX(QStringView mapType, double lon, int z);
+    static int lat2tileY(QStringView mapType, double lat, int z);
 
-        BingMap                 = 444,
-        BingSatellite           = 555,
-        BingHybrid              = 666,
+    static QGCTileSet getTileCount(int zoom, double topleftLon, double topleftLat,
+                            double bottomRightLon, double bottomRightLat,
+                            QStringView mapType);
 
-        /*
-        MapQuestMap             = 700,
-        MapQuestSat             = 701,
-        */
+    static const QList<std::shared_ptr<const MapProvider>>& getProviders() { return _providers; }
+    static QStringList getElevationProviderTypes();
+    static QStringList getProviderTypes();
+    static int getQtMapIdFromProviderType(QStringView type);
+    static QString getProviderTypeFromQtMapId(int qtMapId);
+    static std::shared_ptr<const MapProvider> getMapProviderFromQtMapId(int qtMapId);
+    static std::shared_ptr<const MapProvider> getMapProviderFromProviderType(QStringView type);
+    static QString providerTypeFromHash(int hash);
 
-        VWorldMap                = 800,
-        VWorldSatellite          = 801,
-        VWorldStreet             = 802,
-
-        MapboxStreets           = 6000,
-        MapboxLight             = 6001,
-        MapboxDark              = 6002,
-        MapboxSatellite         = 6003,
-        MapboxHybrid            = 6004,
-        MapboxWheatPaste        = 6005,
-        MapboxStreetsBasic      = 6006,
-        MapboxComic             = 6007,
-        MapboxOutdoors          = 6008,
-        MapboxRunBikeHike       = 6009,
-        MapboxPencil            = 6010,
-        MapboxPirates           = 6011,
-        MapboxEmerald           = 6012,
-        MapboxHighContrast      = 6013,
-
-        EsriWorldStreet         = 7000,
-        EsriWorldSatellite      = 7001,
-        EsriTerrain             = 7002,
-
-        AirmapElevation         = 8001
-    };
-
-    UrlFactory      ();
-    ~UrlFactory     ();
-
-    QNetworkRequest getTileURL          (MapType type, int x, int y, int zoom, QNetworkAccessManager* networkManager);
-    QString         getImageFormat      (MapType type, const QByteArray& image);
-
-    static quint32  averageSizeForType  (MapType type);
-
-private slots:
-#ifndef QGC_NO_GOOGLE_MAPS
-    void    _networkReplyError          (QNetworkReply::NetworkError error);
-    void    _googleVersionCompleted     ();
-    void    _replyDestroyed             ();
-#endif
+    static int hashFromProviderType(QStringView type);
+    static QString tileHashToType(QStringView tileHash);
+    static QString getTileHash(QStringView type, int x, int y, int z);
 
 private:
-    QString _getURL                     (MapType type, int x, int y, int zoom, QNetworkAccessManager* networkManager);
-    QString _tileXYToQuadKey            (int tileX, int tileY, int levelOfDetail);
-    int     _getServerNum               (int x, int y, int max);
-#ifndef QGC_NO_GOOGLE_MAPS
-    void    _getSecGoogleWords          (int x, int y, QString& sec1, QString& sec2);
-    void    _tryCorrectGoogleVersions   (QNetworkAccessManager* networkManager);
-#endif
-
-private:
-    int             _timeout;
-    QByteArray      _userAgent;
-    QString         _language;
-
-    // Google version strings
-#ifndef QGC_NO_GOOGLE_MAPS
-    bool            _googleVersionRetrieved;
-    QNetworkReply*  _googleReply;
-    QMutex          _googleVersionMutex;
-    QString         _versionGoogleMap;
-    QString         _versionGoogleSatellite;
-    QString         _versionGoogleLabels;
-    QString         _versionGoogleTerrain;
-    QString         _secGoogleWord;
-#endif
-
-    // BingMaps
-    QString         _versionBingMaps;
-
+    static const QList<std::shared_ptr<const MapProvider>> _providers;
 };
 
-#endif
+typedef std::shared_ptr<const MapProvider> SharedMapProvider;
+typedef std::shared_ptr<const ElevationProvider> SharedElevationProvider;

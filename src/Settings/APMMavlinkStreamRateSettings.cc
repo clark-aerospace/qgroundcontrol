@@ -1,22 +1,9 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "APMMavlinkStreamRateSettings.h"
-#include "QGCApplication.h"
-
-#include <QQmlEngine>
-#include <QtQml>
+#include "Vehicle.h"
+#include "MultiVehicleManager.h"
 
 DECLARE_SETTINGGROUP(APMMavlinkStreamRate, "APMMavlinkStreamRate")
 {
-    qmlRegisterUncreatableType<APMMavlinkStreamRateSettings>("QGroundControl.SettingsManager", 1, 0, "APMMavlinkStreamRateSettings", "Reference only");
-
     connect(streamRateRawSensors(),     &Fact::rawValueChanged, this, &APMMavlinkStreamRateSettings::_updateStreamRateRawSensors);
     connect(streamRateExtendedStatus(), &Fact::rawValueChanged, this, &APMMavlinkStreamRateSettings::_updateStreamRateExtendedStatus);
     connect(streamRateRCChannels(),     &Fact::rawValueChanged, this, &APMMavlinkStreamRateSettings::_updateStreamRateRCChannels);
@@ -36,7 +23,7 @@ DECLARE_SETTINGSFACT(APMMavlinkStreamRateSettings, streamRateExtra3)
 
 void APMMavlinkStreamRateSettings::_updateStreamRateWorker(MAV_DATA_STREAM mavStream, QVariant rateVar)
 {
-    Vehicle* activeVehicle = qgcApp()->toolbox()->multiVehicleManager()->activeVehicle();
+    Vehicle* activeVehicle = MultiVehicleManager::instance()->activeVehicle();
 
     if (activeVehicle) {
         int streamRate = rateVar.toInt();

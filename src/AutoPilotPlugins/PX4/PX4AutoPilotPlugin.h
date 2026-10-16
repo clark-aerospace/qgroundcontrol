@@ -1,17 +1,7 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
-#ifndef PX4AUTOPILOT_H
-#define PX4AUTOPILOT_H
+#pragma once
 
 #include "AutoPilotPlugin.h"
+#include "ActuatorComponent.h"
 #include "PX4AirframeLoader.h"
 #include "AirframeComponent.h"
 #include "PX4RadioComponent.h"
@@ -19,18 +9,14 @@
 #include "FlightModesComponent.h"
 #include "SensorsComponent.h"
 #include "SafetyComponent.h"
-#include "CameraComponent.h"
 #include "PowerComponent.h"
 #include "MotorComponent.h"
 #include "PX4TuningComponent.h"
+#include "PX4FlightBehavior.h"
 #include "SyslinkComponent.h"
-#include "Vehicle.h"
+#include "JoystickComponent.h"
 
-#include <QImage>
-
-/// @file
-///     @brief This is the PX4 specific implementation of the AutoPilot class.
-///     @author Don Gagne <don@thegagnes.com>
+class Vehicle;
 
 class PX4AutoPilotPlugin : public AutoPilotPlugin
 {
@@ -54,14 +40,14 @@ protected:
     FlightModesComponent*   _flightModesComponent;
     SensorsComponent*       _sensorsComponent;
     SafetyComponent*        _safetyComponent;
-    CameraComponent*        _cameraComponent;
     PowerComponent*         _powerComponent;
     MotorComponent*         _motorComponent;
+    ActuatorComponent*      _actuatorComponent;
     PX4TuningComponent*     _tuningComponent;
+    PX4FlightBehavior*      _flightBehavior;
     SyslinkComponent*       _syslinkComponent;
+    JoystickComponent*      _joystickComponent;
 
 private:
     QVariantList            _components;
 };
-
-#endif

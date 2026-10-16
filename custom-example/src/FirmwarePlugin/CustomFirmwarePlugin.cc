@@ -1,68 +1,57 @@
-/****************************************************************************
- *
- * (c) 2009-2019 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- * @file
- *   @brief Custom Firmware Plugin (PX4)
- *   @author Gus Grubba <gus@auterion.com>
- *
- */
-
 #include "CustomFirmwarePlugin.h"
 #include "CustomAutoPilotPlugin.h"
-#include "CustomCameraManager.h"
-#include "CustomCameraControl.h"
+#include "px4_custom_mode.h"
+#include "Vehicle.h"
 
-//-----------------------------------------------------------------------------
 CustomFirmwarePlugin::CustomFirmwarePlugin()
 {
-    for (int i = 0; i < _flightModeInfoList.count(); i++) {
-        FlightModeInfo_t& info = _flightModeInfoList[i];
-        //-- Narrow the options to only these two
-        if (info.name != _altCtlFlightMode &&
-            info.name != _posCtlFlightMode) {
-            info.canBeSet = false;
+    for (auto &mode: _flightModeList) {
+        //-- Narrow the flight mode options to only these
+        if ((mode.mode_name != pauseFlightMode()) && (mode.mode_name != rtlFlightMode()) && (mode.mode_name != missionFlightMode())) {
+            // No other flight modes can be set
+            mode.canBeSet = false;
         }
     }
 }
 
-//-----------------------------------------------------------------------------
-AutoPilotPlugin* CustomFirmwarePlugin::autopilotPlugin(Vehicle* vehicle)
+AutoPilotPlugin* CustomFirmwarePlugin::autopilotPlugin(Vehicle *vehicle) const
 {
     return new CustomAutoPilotPlugin(vehicle, vehicle);
 }
 
-//-----------------------------------------------------------------------------
-QGCCameraManager*
-CustomFirmwarePlugin::createCameraManager(Vehicle *vehicle)
+const QVariantList& CustomFirmwarePlugin::toolIndicators(const Vehicle *vehicle)
 {
-    return new CustomCameraManager(vehicle);
-}
-
-//-----------------------------------------------------------------------------
-QGCCameraControl*
-CustomFirmwarePlugin::createCameraControl(const mavlink_camera_information_t* info, Vehicle *vehicle, int compID, QObject* parent)
-{
-    return new CustomCameraControl(info, vehicle, compID, parent);
-}
-
-//-----------------------------------------------------------------------------
-const QVariantList&
-CustomFirmwarePlugin::toolBarIndicators(const Vehicle* vehicle)
-{
-    Q_UNUSED(vehicle);
-    if(_toolBarIndicatorList.size() == 0) {
-#if defined(QGC_ENABLE_PAIRING)
-        _toolBarIndicatorList.append(QVariant::fromValue(QUrl::fromUserInput("qrc:/toolbar/PairingIndicator.qml")));
-#endif
-        _toolBarIndicatorList.append(QVariant::fromValue(QUrl::fromUserInput("qrc:/toolbar/GPSIndicator.qml")));
-        _toolBarIndicatorList.append(QVariant::fromValue(QUrl::fromUserInput("qrc:/toolbar/TelemetryRSSIIndicator.qml")));
-        _toolBarIndicatorList.append(QVariant::fromValue(QUrl::fromUserInput("qrc:/toolbar/RCRSSIIndicator.qml")));
-        _toolBarIndicatorList.append(QVariant::fromValue(QUrl::fromUserInput("qrc:/toolbar/BatteryIndicator.qml")));
+    if (_toolIndicatorList.size() == 0) {
+        // First call the base class to get the standard QGC list. This way we are guaranteed to always get
+        // any new toolbar indicators which are added upstream in our custom build.
+        _toolIndicatorList = FirmwarePlugin::toolIndicators(vehicle);
+        // Then specifically remove the RC RSSI indicator.
+        _toolIndicatorList.removeOne(QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/RCRSSIIndicator.qml")));
     }
-    return _toolBarIndicatorList;
+
+    return _toolIndicatorList;
 }
 
+bool CustomFirmwarePlugin::hasGimbal(Vehicle* /*vehicle*/, bool &rollSupported, bool &pitchSupported, bool &yawSupported) const
+{
+    rollSupported = false;
+    pitchSupported = true;
+    yawSupported = true;
+
+    return true;
+}
+
+void CustomFirmwarePlugin::updateAvailableFlightModes(FlightModeList &modeList)
+{
+    // This custom build only allows Hold, Return and Mission to be set by the user.
+    for (auto &mode: modeList) {
+        const PX4CustomMode::Mode cMode = static_cast<PX4CustomMode::Mode>(mode.custom_mode);
+        mode.canBeSet = (cMode == PX4CustomMode::AUTO_LOITER) ||
+                        (cMode == PX4CustomMode::AUTO_RTL) ||
+                        (cMode == PX4CustomMode::AUTO_MISSION);
+    }
+
+    // Let the base class do the standard airframe (fixed wing / multi rotor) classification
+    // and update the internal flight mode lists.
+    PX4FirmwarePlugin::updateAvailableFlightModes(modeList);
+}

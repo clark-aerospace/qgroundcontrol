@@ -1,24 +1,11 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Dialogs
+import QtQuick.Layouts
 
-import QtQuick                      2.3
-import QtQuick.Controls             1.2
-import QtQuick.Dialogs              1.2
-import QtQuick.Layouts              1.2
-
-import QGroundControl               1.0
-import QGroundControl.Controls      1.0
-import QGroundControl.Palette       1.0
-import QGroundControl.ScreenTools   1.0
-import QGroundControl.Controllers   1.0
-import QGroundControl.FactSystem    1.0
-import QGroundControl.FactControls  1.0
+import QGroundControl
+import QGroundControl.Controls
+import QGroundControl.FactControls
 
 Item {
     id:         _root
@@ -26,79 +13,28 @@ Item {
     property Fact   _editorDialogFact: Fact { }
     property int    _rowHeight:         ScreenTools.defaultFontPixelHeight * 2
     property int    _rowWidth:          10 // Dynamic adjusted at runtime
-    property bool   _searchFilter:      searchText.text.trim() != ""   ///< true: showing results of search
+    property bool   _searchFilter:      searchText.text.trim() != "" || controller.showModifiedOnly || controller.showFavoritesOnly  ///< true: showing results of search
     property var    _searchResults      ///< List of parameter names from search results
-    property bool   _showRCToParam:     !ScreenTools.isMobile && QGroundControl.multiVehicleManager.activeVehicle.px4Firmware
+    property var    _activeVehicle:     QGroundControl.multiVehicleManager.activeVehicle
+    property bool   _showRCToParam:     _activeVehicle.px4Firmware
     property var    _appSettings:       QGroundControl.settingsManager.appSettings
+    property var    _controller:        controller
+    property var    _favorites:         controller.favoriteParameterNames
+    property real   _margins:           ScreenTools.defaultFontPixelHeight / 2
 
     ParameterEditorController {
-        id:         controller;
-        onShowErrorMessage: {
-            mainWindow.showMessageDialog(qsTr("Parameter Editor"), qsTr("Parameter Load Errors"))
-        }
+        id: controller
     }
 
-    ExclusiveGroup { id: sectionGroup }
-
-    //---------------------------------------------
-    //-- Header
-    Row {
-        id:             header
-        anchors.left:   parent.left
-        anchors.right:  parent.right
-        spacing:        ScreenTools.defaultFontPixelWidth
-
-        Timer {
-            id:         clearTimer
-            interval:   100;
-            running:    false;
-            repeat:     false
-            onTriggered: {
-                searchText.text = ""
-                controller.searchText = ""
-            }
+    Timer {
+        id:         clearTimer
+        interval:   100;
+        running:    false;
+        repeat:     false
+        onTriggered: {
+            searchText.text = ""
+            controller.searchText = ""
         }
-
-        QGCLabel {
-            anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("Search:")
-        }
-
-        QGCTextField {
-            id:                 searchText
-            text:               controller.searchText
-            onDisplayTextChanged: controller.searchText = displayText
-            anchors.verticalCenter: parent.verticalCenter
-        }
-
-        QGCButton {
-            text: qsTr("Clear")
-            onClicked: {
-                if(ScreenTools.isMobile) {
-                    Qt.inputMethod.hide();
-                }
-                clearTimer.start()
-            }
-            anchors.verticalCenter: parent.verticalCenter
-        }
-
-        QGCCheckBox {
-            text:       qsTr("Show modified only")
-            checked:    controller.showModifiedOnly
-            anchors.verticalCenter: parent.verticalCenter
-            onClicked: {
-                controller.showModifiedOnly = !controller.showModifiedOnly
-            }
-        }
-    } // Row - Header
-
-    QGCButton {
-        anchors.top:    header.top
-        anchors.bottom: header.bottom
-        anchors.right:  parent.right
-        text:           qsTr("Tools")
-        visible:        !_searchFilter
-        onClicked:      toolsMenu.popup()
     }
 
     QGCMenu {
@@ -109,20 +45,25 @@ Item {
         }
         QGCMenuItem {
             text:           qsTr("Reset all to firmware's defaults")
-            visible:        !activeVehicle.apmFirmware
-            onTriggered:    mainWindow.showComponentDialog(resetToDefaultConfirmComponent, qsTr("Reset All"), mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Reset)
+            onTriggered:    QGroundControl.showMessageDialog(_root, qsTr("Reset All"),
+                                                         qsTr("Select Reset to reset all parameters to their defaults.\n\nNote that this will also completely reset everything, including UAVCAN nodes, all vehicle settings, setup and calibrations."),
+                                                         Dialog.Cancel | Dialog.Reset,
+                                                         function() { controller.resetAllToDefaults() })
         }
         QGCMenuItem {
             text:           qsTr("Reset to vehicle's configuration defaults")
-            visible:        !activeVehicle.apmFirmware
-            onTriggered:    mainWindow.showComponentDialog(resetToVehicleConfigurationConfirmComponent, qsTr("Reset All"), mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Reset)
+            visible:        !_activeVehicle.apmFirmware
+            onTriggered:    QGroundControl.showMessageDialog(_root, qsTr("Reset All"),
+                                                         qsTr("Select Reset to reset all parameters to the vehicle's configuration defaults."),
+                                                         Dialog.Cancel | Dialog.Reset,
+                                                         function() { controller.resetAllToVehicleConfiguration() })
         }
         QGCMenuSeparator { }
         QGCMenuItem {
-            text:           qsTr("Load from file...")
+            objectName:     "parameterEditor_toolLoadFromFile"
+            text:           qsTr("Load from file for review...")
             onTriggered: {
                 fileDialog.title =          qsTr("Load Parameters")
-                fileDialog.selectExisting = true
                 fileDialog.openForLoad()
             }
         }
@@ -130,20 +71,132 @@ Item {
             text:           qsTr("Save to file...")
             onTriggered: {
                 fileDialog.title =          qsTr("Save Parameters")
-                fileDialog.selectExisting = false
                 fileDialog.openForSave()
             }
         }
+        QGCMenuSeparator { }
+        QGCMenuItem {
+            text:           qsTr("Clear all favorites")
+            onTriggered:    controller.clearAllFavorites()
+        }
         QGCMenuSeparator { visible: _showRCToParam }
         QGCMenuItem {
-            text:           qsTr("Clear RC to Param")
-            onTriggered:	controller.clearRCToParam()
+            text:           qsTr("Clear all RC to Param")
+            onTriggered:	_activeVehicle.clearAllParamMapRC()
             visible:        _showRCToParam
         }
         QGCMenuSeparator { }
         QGCMenuItem {
             text:           qsTr("Reboot Vehicle")
-            onTriggered:    mainWindow.showComponentDialog(rebootVehicleConfirmComponent, qsTr("Reboot Vehicle"), mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Ok)
+            onTriggered:    QGroundControl.showMessageDialog(_root, qsTr("Reboot Vehicle"),
+                                                         qsTr("Select Ok to reboot vehicle."),
+                                                         Dialog.Cancel | Dialog.Ok,
+                                                         function() { _activeVehicle.rebootVehicle() })
+        }
+    }
+
+
+    QGCFileDialog {
+        id:             fileDialog
+        folder:         _appSettings.parameterSavePath
+        nameFilters:    [ qsTr("Parameter Files (*.%1)").arg(_appSettings.parameterFileExtension), qsTr("Mission Planner Files (*.param)"), qsTr("All Files (*)") ]
+
+        onAcceptedForSave: (file) => {
+            controller.saveToFile(file)
+            close()
+        }
+
+        onAcceptedForLoad: (file) => {
+            close()
+            if (controller.buildDiffFromFile(file)) {
+                parameterDiffDialogFactory.open()
+            }
+        }
+    }
+
+    QGCPopupDialogFactory {
+        id: editorDialogFactory
+
+        dialogComponent: editorDialogComponent
+    }
+
+    Component {
+        id: editorDialogComponent
+
+        ParameterEditorDialog {
+            fact:           _editorDialogFact
+            showRCToParam:  _showRCToParam
+        }
+    }
+
+    QGCPopupDialogFactory {
+        id: parameterDiffDialogFactory
+
+        dialogComponent: parameterDiffDialog
+    }
+
+    Component {
+        id: parameterDiffDialog
+
+        ParameterDiffDialog {
+            paramController: _controller
+        }
+    }
+
+    RowLayout {
+        id:             header
+        anchors.left:   parent.left
+        anchors.right:  parent.right
+
+        RowLayout {
+            Layout.alignment:   Qt.AlignLeft
+            spacing:            ScreenTools.defaultFontPixelWidth
+
+            QGCTextField {
+                id:                     searchText
+                placeholderText:        qsTr("Search")
+                onDisplayTextChanged:   controller.searchText = displayText
+            }
+
+            QGCButton {
+                text: qsTr("Clear")
+                onClicked: {
+                    if(ScreenTools.isMobile) {
+                        Qt.inputMethod.hide();
+                    }
+                    clearTimer.start()
+                }
+            }
+
+            QGCCheckBox {
+                text:       qsTr("Hide read-only")
+                checked:    controller.hideReadOnly
+                onClicked:  controller.hideReadOnly = checked
+            }
+        }
+
+        QGCButton {
+            Layout.alignment:   Qt.AlignRight
+            objectName:         "parameterEditor_toolsButton"
+            text:               qsTr("Tools")
+            onClicked:          toolsMenu.popup()
+        }
+    }
+
+    QGCTabBar {
+        id:             tabBar
+        anchors.left:   parent.left
+        anchors.right:  parent.right
+        anchors.top:        header.bottom
+        anchors.topMargin:  _margins
+
+        QGCTabButton { text: qsTr("Full List") }
+        QGCTabButton { text: qsTr("Modified") }
+        QGCTabButton { text: qsTr("Favorites") }
+
+        onCurrentIndexChanged: {
+            controller.showModifiedOnly  = (currentIndex === 1)
+            controller.showFavoritesOnly = (currentIndex === 2)
         }
     }
 
@@ -151,13 +204,14 @@ Item {
     QGCFlickable {
         id :                groupScroll
         width:              ScreenTools.defaultFontPixelWidth * 25
-        anchors.top:        header.bottom
+        anchors.top:        tabBar.bottom
+        anchors.topMargin:  _margins
         anchors.bottom:     parent.bottom
         clip:               true
         pixelAligned:       true
         contentHeight:      groupedViewCategoryColumn.height
         flickableDirection: Flickable.VerticalFlick
-        visible:            !_searchFilter && !controller.showModifiedOnly
+        visible:            !_searchFilter
 
         ColumnLayout {
             id:             groupedViewCategoryColumn
@@ -172,41 +226,35 @@ Item {
                     Layout.fillWidth:   true
                     spacing:            Math.ceil(ScreenTools.defaultFontPixelHeight * 0.25)
 
-                    readonly property string category: modelData
 
                     SectionHeader {
                         id:             categoryHeader
-                        text:           category
-                        checked:        controller.currentCategory === text
-                        exclusiveGroup: sectionGroup
+                        anchors.left:   parent.left
+                        anchors.right:  parent.right
+                        text:           object.name
+                        checked:        object == controller.currentCategory
 
                         onCheckedChanged: {
                             if (checked) {
-                                controller.currentCategory  = category
-                                controller.currentGroup     = controller.getGroupsForCategory(category)[0]
+                                controller.currentCategory  = object
                             }
                         }
                     }
 
-                    ExclusiveGroup { id: buttonGroup }
-
                     Repeater {
-                        model: categoryHeader.checked ? controller.getGroupsForCategory(category) : 0
+                        model: categoryHeader.checked ? object.groups : 0
 
                         QGCButton {
                             width:          ScreenTools.defaultFontPixelWidth * 25
-                            text:           groupName
+                            text:           object.name
                             height:         _rowHeight
-                            checked:        controller.currentGroup === text
-                            exclusiveGroup: buttonGroup
-
-                            readonly property string groupName: modelData
+                            checked:        object == controller.currentGroup
+                            autoExclusive:  true
 
                             onClicked: {
+                                if (!checked) _rowWidth = 10
                                 checked = true
-                                _rowWidth                   = 10
-                                controller.currentCategory  = category
-                                controller.currentGroup     = groupName
+                                controller.currentGroup = object
                             }
                         }
                     }
@@ -215,146 +263,191 @@ Item {
         }
     }
 
-    /// Parameter list
-    QGCListView {
-        id:                 editorListView
-        anchors.leftMargin: ScreenTools.defaultFontPixelWidth
-        anchors.left:       (_searchFilter || controller.showModifiedOnly) ? parent.left : groupScroll.right
-        anchors.right:      parent.right
-        anchors.top:        header.bottom
-        anchors.bottom:     parent.bottom
-        orientation:        ListView.Vertical
-        model:              controller.parameters
-        cacheBuffer:        height > 0 ? height * 2 : 0
+    HorizontalHeaderView {
+        id:                 headerView
+        anchors.left:       tableView.left
+        anchors.right:      tableView.right
+        anchors.top:        tabBar.bottom
+        anchors.topMargin:  _margins
+        syncView:           tableView
         clip:               true
 
         delegate: Rectangle {
-            height: _rowHeight
-            width:  _rowWidth
-            color:  Qt.rgba(0,0,0,0)
+            implicitWidth:  column === 0 ? ScreenTools.implicitCheckBoxHeight + ScreenTools.defaultFontPixelWidth
+                                         : headerLabel.contentWidth + ScreenTools.defaultFontPixelWidth
+            implicitHeight: headerLabel.contentHeight + ScreenTools.defaultFontPixelHeight * 0.5
+            color:          qgcPal.windowShade
+
+            QGCLabel {
+                id:                     headerLabel
+                anchors.left:           parent.left
+                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth / 2
+                anchors.verticalCenter: parent.verticalCenter
+                text:                   display
+                font.bold:              true
+            }
+
+            // Top border
+            Rectangle {
+                anchors.top:    parent.top
+                width:          parent.width
+                height:         1
+                color:          qgcPal.groupBorder
+            }
+
+            // Left border
+            Rectangle {
+                anchors.left:   parent.left
+                height:         parent.height
+                width:          1
+                color:          qgcPal.groupBorder
+            }
+
+            // Right border (last column only)
+            Rectangle {
+                anchors.right:  parent.right
+                height:         parent.height
+                width:          1
+                color:          qgcPal.groupBorder
+                visible:        column == 3
+            }
+
+            // Bottom border
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width:          parent.width
+                height:         1
+                color:          qgcPal.groupBorder
+            }
+        }
+    }
+
+    TableView {
+        id:                 tableView
+        anchors.leftMargin: ScreenTools.defaultFontPixelWidth
+        anchors.top:        headerView.bottom
+        anchors.bottom:     parent.bottom
+        anchors.left:       _searchFilter ? parent.left : groupScroll.right
+        anchors.right:      parent.right
+        columnSpacing:      0
+        rowSpacing:         0
+        model:              controller.parameters
+        contentWidth:       width
+        clip:               true
+
+        // Qt is supposed to adjust column widths automatically when larger widths come into view.
+        // But it doesn't work. So we have to do it force a layout manually when we scroll.
+        Timer {
+            id:             forceLayoutTimer
+            interval:       500
+            repeat:         false
+            onTriggered:    tableView.forceLayout()
+        }
+
+        onTopRowChanged: forceLayoutTimer.start()
+        onModelChanged: {
+            positionViewAtRow(0, TableView.AlignLeft | TableView.AlignTop)
+            forceLayoutTimer.start()
+        }
+
+        delegate: Rectangle {
+            implicitWidth:  column === 0 ? ScreenTools.implicitCheckBoxHeight + ScreenTools.defaultFontPixelWidth
+                                         : column === 1 ? nameRow.implicitWidth + ScreenTools.defaultFontPixelWidth
+                                         : column === 2 ? ScreenTools.defaultFontPixelWidth * 16
+                                                        : label.contentWidth + ScreenTools.defaultFontPixelWidth
+            implicitHeight: label.contentHeight + ScreenTools.defaultFontPixelHeight * 0.5
+            color:          row % 2 === 0 ? "transparent" : qgcPal.windowShade
+            clip:           true
+
+            // Bottom grid line
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width:          parent.width
+                height:         1
+                color:          qgcPal.groupBorder
+            }
+
+            // Left grid line
+            Rectangle {
+                anchors.left:   parent.left
+                height:         parent.height
+                width:          1
+                color:          qgcPal.groupBorder
+            }
+
+            // Right grid line (last column only)
+            Rectangle {
+                anchors.right:  parent.right
+                height:         parent.height
+                width:          1
+                color:          qgcPal.groupBorder
+                visible:        column == 3
+            }
+
+            QGCCheckBox {
+                visible:                column === 0
+                anchors.centerIn:       parent
+                checked:                _root._favorites.indexOf(fact.name) >= 0
+                z:                      1
+                onClicked:              controller.toggleFavorite(fact.name)
+            }
 
             Row {
-                id:     factRow
-                spacing: Math.ceil(ScreenTools.defaultFontPixelWidth * 0.5)
+                id:                     nameRow
+                visible:                column === 1
+                anchors.left:           parent.left
+                anchors.leftMargin:     ScreenTools.defaultFontPixelWidth / 2
                 anchors.verticalCenter: parent.verticalCenter
-
-                property Fact modelFact: object
-
-                QGCLabel {
-                    id:     nameLabel
-                    width:  ScreenTools.defaultFontPixelWidth  * 20
-                    text:   factRow.modelFact.name
-                    clip:   true
-                }
+                spacing:               lockIcon.visible ? ScreenTools.defaultFontPixelWidth / 3 : 0
 
                 QGCLabel {
-                    id:     valueLabel
-                    width:  ScreenTools.defaultFontPixelWidth  * 20
-                    color:  factRow.modelFact.defaultValueAvailable ? (factRow.modelFact.valueEqualsDefault ? qgcPal.text : qgcPal.warningText) : qgcPal.text
-                    text:   factRow.modelFact.enumStrings.length === 0 ? factRow.modelFact.valueString + " " + factRow.modelFact.units : factRow.modelFact.enumStringValue
-                    clip:   true
+                    text:               column === 1 ? display : ""
+                    anchors.verticalCenter: parent.verticalCenter
                 }
 
-                QGCLabel {
-                    text:   factRow.modelFact.shortDescription
+                QGCColoredImage {
+                    id:                 lockIcon
+                    visible:            fact.readOnly
+                    source:             "qrc:/InstrumentValueIcons/lock-closed.svg"
+                    color:              qgcPal.text
+                    width:              ScreenTools.defaultFontPixelHeight * 0.8
+                    height:             width
+                    sourceSize.width:   width
+                    anchors.verticalCenter: parent.verticalCenter
                 }
+            }
 
-                Component.onCompleted: {
-                    if(_rowWidth < factRow.width + ScreenTools.defaultFontPixelWidth) {
-                        _rowWidth = factRow.width + ScreenTools.defaultFontPixelWidth
+            QGCLabel {
+                id:                 label
+                visible:            column !== 0 && column !== 1
+                anchors.left:       parent.left
+                anchors.leftMargin: ScreenTools.defaultFontPixelWidth / 2
+                anchors.verticalCenter: parent.verticalCenter
+                width:              column == 2 ? ScreenTools.defaultFontPixelWidth * 15 : implicitWidth
+                text:               column == 2 ? col1String() : display
+                color:              column == 2 && fact.defaultValueAvailable && !fact.valueEqualsDefault ? qgcPal.modifiedParamValue : qgcPal.text
+                font.bold:          column == 2 && fact.defaultValueAvailable && !fact.valueEqualsDefault
+                maximumLineCount:   1
+                elide:              column == 2 ? Text.ElideRight : Text.ElideNone
+
+                function col1String() {
+                    if (fact.enumStrings.length === 0) {
+                        return fact.valueString + " " + fact.units
                     }
+                    if (fact.bitmaskStrings.length != 0) {
+                        return fact.selectedBitmaskStrings.join(',')
+                    }
+                    return fact.enumStringValue
                 }
             }
 
-            Rectangle {
-                width:  _rowWidth
-                height: 1
-                color:  qgcPal.text
-                opacity: 0.15
-                anchors.bottom: parent.bottom
-                anchors.left:   parent.left
-            }
-
-            MouseArea {
-                anchors.fill:       parent
-                acceptedButtons:    Qt.LeftButton
-                onClicked: {
-                    _editorDialogFact = factRow.modelFact
-                    mainWindow.showComponentDialog(editorDialogComponent, qsTr("Parameter Editor"), mainWindow.showDialogDefaultWidth, StandardButton.Cancel | StandardButton.Save)
+            QGCMouseArea {
+                anchors.fill: parent
+                visible:      column !== 0
+                onClicked: mouse => {
+                    _editorDialogFact = fact
+                    editorDialogFactory.open()
                 }
-            }
-        }
-    }
-
-    QGCFileDialog {
-        id:             fileDialog
-        folder:         _appSettings.parameterSavePath
-        fileExtension:  _appSettings.parameterFileExtension
-        nameFilters:    [ qsTr("Parameter Files (*.%1)").arg(_appSettings.parameterFileExtension) , qsTr("All Files (*.*)") ]
-
-        onAcceptedForSave: {
-            controller.saveToFile(file)
-            close()
-        }
-
-        onAcceptedForLoad: {
-            controller.loadFromFile(file)
-            close()
-        }
-    }
-
-    Component {
-        id: editorDialogComponent
-
-        ParameterEditorDialog {
-            fact:           _editorDialogFact
-            showRCToParam:  _showRCToParam
-        }
-    }
-
-    Component {
-        id: resetToDefaultConfirmComponent
-        QGCViewDialog {
-            function accept() {
-                controller.resetAllToDefaults()
-                hideDialog()
-            }
-            QGCLabel {
-                width:              parent.width
-                wrapMode:           Text.WordWrap
-                text:               qsTr("Select Reset to reset all parameters to their defaults.\n\nNote that this will also completely reset everything, including UAVCAN nodes.")
-            }
-        }
-    }
-
-    Component {
-        id: resetToVehicleConfigurationConfirmComponent
-        QGCViewDialog {
-            function accept() {
-                controller.resetAllToVehicleConfiguration()
-                hideDialog()
-            }
-            QGCLabel {
-                width:              parent.width
-                wrapMode:           Text.WordWrap
-                text:               qsTr("Select Reset to reset all parameters to the vehicle's configuration defaults.")
-            }
-        }
-    }
-
-    Component {
-        id: rebootVehicleConfirmComponent
-
-        QGCViewDialog {
-            function accept() {
-                activeVehicle.rebootVehicle()
-                hideDialog()
-            }
-
-            QGCLabel {
-                width:              parent.width
-                wrapMode:           Text.WordWrap
-                text:               qsTr("Select Ok to reboot vehicle.")
             }
         }
     }

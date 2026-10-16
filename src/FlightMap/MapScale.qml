@@ -1,32 +1,21 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
+import QtQuick
+import QtQuick.Controls
 
-import QtQuick          2.3
-import QtQuick.Controls 1.2
-
-import QGroundControl                   1.0
-import QGroundControl.Controls          1.0
-import QGroundControl.ScreenTools       1.0
-import QGroundControl.SettingsManager   1.0
+import QGroundControl
+import QGroundControl.Controls
 
 /// Map scale control
 Item {
-    id:     scale
+    id:     control
     width:  rightEnd.x + rightEnd.width
     height: rightEnd.y + rightEnd.height
 
-    property var    mapControl                                                          ///< Map control for which this scale control is being used
+    property var    mapControl                      ///< Map control for which this scale control is being used
+    property bool   autoHide:               false   ///< true: disappears after a timeout on scale change
 
-    property variant _scaleLengthsMeters: [5, 10, 25, 50, 100, 150, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]
-    property variant _scaleLengthsFeet: [10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 4000, 5280, 5280*2, 5280*5, 5280*10, 5280*25, 5280*50, 5280*100, 5280*250, 5280*500, 5280*1000]
-
-    property var _color: mapControl.isSatelliteMap ? "white" : "black"
+    property var    _scaleLengthsMeters:    [5, 10, 25, 50, 100, 150, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000, 2000000]
+    property var    _scaleLengthsFeet:      [10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 4000, 5280, 5280*2, 5280*5, 5280*10, 5280*25, 5280*50, 5280*100, 5280*250, 5280*500, 5280*1000]
+    property var    _color:                 mapControl && mapControl.isSatelliteMap ? "white" : "black"
 
     function formatDistanceMeters(meters) {
         var dist = Math.round(meters)
@@ -112,10 +101,10 @@ Item {
     function calculateScale() {
         if(mapControl) {
             var scaleLinePixelLength = 100
-            var leftCoord  = mapControl.toCoordinate(Qt.point(0, scale.y), false /* clipToViewPort */)
-            var rightCoord = mapControl.toCoordinate(Qt.point(scaleLinePixelLength, scale.y), false /* clipToViewPort */)
+            var leftCoord  = mapControl.toCoordinate(Qt.point(0, control.y), false /* clipToViewPort */)
+            var rightCoord = mapControl.toCoordinate(Qt.point(scaleLinePixelLength, control.y), false /* clipToViewPort */)
             var scaleLineMeters = Math.round(leftCoord.distanceTo(rightCoord))
-            if (QGroundControl.settingsManager.unitsSettings.distanceUnits.value === UnitsSettings.DistanceUnitsFeet) {
+            if (QGroundControl.settingsManager.unitsSettings.horizontalDistanceUnits.value === UnitsSettings.HorizontalDistanceUnitsFeet) {
                 calculateFeetRatio(scaleLineMeters, scaleLinePixelLength)
             } else {
                 calculateMetersRatio(scaleLineMeters, scaleLinePixelLength)
@@ -123,27 +112,51 @@ Item {
         }
     }
 
+    function triggerRecalc() {
+        calculateScale()
+        if (control.autoHide) {
+            autoHideTimer.restart()
+            autoHideAnimation.stop()
+            control.opacity = 1
+        }
+    }
+
+    Component.onCompleted: calculateScale()
+
     Connections {
-        target:             mapControl
-        onWidthChanged:     scaleTimer.restart()
-        onHeightChanged:    scaleTimer.restart()
-        onZoomLevelChanged: scaleTimer.restart()
+        target: mapControl
+        function onWidthChanged() { triggerRecalc() }
+        function onHeightChanged() { triggerRecalc() }
+        function onZoomLevelChanged() { triggerRecalc() }
+    }
+
+    Connections {
+        target: QGroundControl.unitsConversion
+        function onUnitsChanged() { triggerRecalc() }
+    }
+
+    PropertyAnimation {
+        id:         autoHideAnimation
+        target:     control
+        property:   "opacity"
+        from:       1
+        to:         0
+        duration:   500
     }
 
     Timer {
-        id:                 scaleTimer
-        interval:           100
-        running:            false
-        repeat:             false
-        onTriggered:        calculateScale()
+        id:             autoHideTimer
+        interval:       3000
+        onTriggered:    autoHideAnimation.start()
     }
 
     QGCMapLabel {
         id:                 scaleText
+        objectName:         "scaleText"
         map:                mapControl
-        font.family:        ScreenTools.demiboldFontFamily
+        font.bold:          true
         anchors.left:       parent.left
-        anchors.right:      parent.right
+        anchors.right:      rightEnd.right
         horizontalAlignment:Text.AlignRight
         text:               "0 m"
     }
@@ -173,11 +186,5 @@ Item {
         width:              2
         height:             ScreenTools.defaultFontPixelHeight
         color:              _color
-    }
-
-    Component.onCompleted: {
-        if (scale.visible) {
-            calculateScale();
-        }
     }
 }

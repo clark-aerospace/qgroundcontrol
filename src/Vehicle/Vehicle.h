@@ -1,494 +1,117 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
-#include <QObject>
-#include <QVariantList>
-#include <QGeoCoordinate>
+#include <functional>
+#include <memory>
 
-#include "FactGroup.h"
-#include "LinkInterface.h"
+#include <QtCore/QElapsedTimer>
+#include <QtCore/QFile>
+#include <QtCore/QObject>
+#include <QtCore/QPointer>
+#include <QtCore/QSharedPointer>
+#include <QtCore/QTime>
+#include <QtCore/QTimer>
+#include <QtCore/QVariantList>
+#include <QtPositioning/QGeoCoordinate>
+#include <QtQmlIntegration/QtQmlIntegration>
+
+#include <array>
+#include <atomic>
+
 #include "QGCMAVLink.h"
-#include "QmlObjectListModel.h"
-#include "MAVLinkProtocol.h"
-#include "UASMessageHandler.h"
-#include "SettingsFact.h"
-#include "QGCMapCircle.h"
+#include "VehicleFactGroup.h"
+#include "VehicleSigningController.h"  // Q_PROPERTY needs the full QObject type for moc/QML metatype registration
+#include "VehicleTypes.h"
 
-class UAS;
-class UASInterface;
-class FirmwarePlugin;
-class FirmwarePluginManager;
+class Actuators;
+class HealthAndArmingCheckReport;
+class MAVLinkStreamConfig;
+class QGCMapCircle;
+class QJsonDocument;
+class QmlObjectListModel;
+class SysStatusSensorInfo;
+class VehicleLinkManager;
 class AutoPilotPlugin;
-class MissionManager;
+class BatteryFactGroupListModel;
+class EscStatusFactGroupListModel;
+class GimbalController;
+class RadioStatusFactGroup;
+class TerrainFactGroup;
+class VehicleClockFactGroup;
+class VehicleDistanceSensorFactGroup;
+class VehicleEFIFactGroup;
+class VehicleEstimatorStatusFactGroup;
+class VehicleGeneratorFactGroup;
+class VehicleGPSFactGroup;
+class VehicleHygrometerFactGroup;
+class VehicleLocalPositionFactGroup;
+class VehicleLocalPositionSetpointFactGroup;
+class VehicleRPMFactGroup;
+class VehicleSetpointFactGroup;
+class VehicleTemperatureFactGroup;
+class VehicleVibrationFactGroup;
+class VehicleWindFactGroup;
+class Autotune;
+class ComponentInformationManager;
+class MAVLinkEventManager;
+class FirmwarePlugin;
+class FTPManager;
 class GeoFenceManager;
-class RallyPointManager;
+class ImageProtocolManager;
+class StatusTextHandler;
+class InitialConnectStateMachine;
+class LinkInterface;
+class MAVLinkLogManager;
+class MavCommandQueue;
+class MessageIntervalManager;
+class MissionManager;
 class ParameterManager;
-class JoystickManager;
-class UASMessage;
-class SettingsManager;
-class ADSBVehicle;
+class RequestMessageCoordinator;
 class QGCCameraManager;
-class Joystick;
+class RallyPointManager;
+class RemoteIDManager;
+class RequestMessageTest;
+class RetryableRequestMessageStateTest;
+class SendMavCommandWithHandlerTest;
+class SendMavCommandWithSignallingTest;
+class StandardModes;
+class TerrainAtCoordinateQuery;
+class TerrainQueryCoordinator;
+class TerrainProtocolHandler;
+class TrajectoryPoints;
 class VehicleObjectAvoidance;
+class VehicleSupports;
 
-#if defined(QGC_AIRMAP_ENABLED)
-class AirspaceVehicleManager;
+class Vehicle : public VehicleFactGroup, public VehicleTypes
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_UNCREATABLE("")
+    Q_MOC_INCLUDE("Actuators.h")
+    Q_MOC_INCLUDE("AutoPilotPlugin.h")
+    Q_MOC_INCLUDE("Autotune.h")
+    Q_MOC_INCLUDE("GimbalController.h")
+    Q_MOC_INCLUDE("LinkInterface.h")
+    Q_MOC_INCLUDE("MAVLinkLogManager.h")
+    Q_MOC_INCLUDE("ParameterManager.h")
+    Q_MOC_INCLUDE("QGCMapCircle.h")
+    Q_MOC_INCLUDE("QmlObjectListModel.h")
+    Q_MOC_INCLUDE("RemoteIDManager.h")
+    Q_MOC_INCLUDE("TrajectoryPoints.h")
+    Q_MOC_INCLUDE("VehicleLinkManager.h")
+    Q_MOC_INCLUDE("VehicleObjectAvoidance.h")
+    Q_MOC_INCLUDE("VehicleSupports.h")
+    Q_MOC_INCLUDE("VehicleGPSFactGroup.h")
+
+    friend class InitialConnectStateMachine;
+    friend class VehicleLinkManager;
+    friend class FactGroupListModel;                // Allow call _addFactGroup
+#ifdef QGC_UNITTEST_BUILD
+    friend class SendMavCommandWithSignallingTest;  // Unit test
+    friend class SendMavCommandWithHandlerTest;     // Unit test
+    friend class RequestMessageTest;                // Unit test
+    friend class RetryableRequestMessageStateTest;  // Unit test
 #endif
-
-Q_DECLARE_LOGGING_CATEGORY(VehicleLog)
-
-class Vehicle;
-
-class VehicleDistanceSensorFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleDistanceSensorFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* rotationNone       READ rotationNone       CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw45      READ rotationYaw45      CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw90      READ rotationYaw90      CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw135     READ rotationYaw135     CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw180     READ rotationYaw180     CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw225     READ rotationYaw225     CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw270     READ rotationYaw270     CONSTANT)
-    Q_PROPERTY(Fact* rotationYaw315     READ rotationYaw315     CONSTANT)
-    Q_PROPERTY(Fact* rotationPitch90    READ rotationPitch90    CONSTANT)
-    Q_PROPERTY(Fact* rotationPitch270   READ rotationPitch270   CONSTANT)
-
-    Fact* rotationNone      (void) { return &_rotationNoneFact; }
-    Fact* rotationYaw45     (void) { return &_rotationYaw45Fact; }
-    Fact* rotationYaw90     (void) { return &_rotationYaw90Fact; }
-    Fact* rotationYaw135    (void) { return &_rotationYaw90Fact; }
-    Fact* rotationYaw180    (void) { return &_rotationYaw180Fact; }
-    Fact* rotationYaw225    (void) { return &_rotationYaw180Fact; }
-    Fact* rotationYaw270    (void) { return &_rotationYaw270Fact; }
-    Fact* rotationYaw315    (void) { return &_rotationYaw315Fact; }
-    Fact* rotationPitch90   (void) { return &_rotationPitch90Fact; }
-    Fact* rotationPitch270  (void) { return &_rotationPitch270Fact; }
-
-    bool idSet(void) { return _idSet; }
-    void setIdSet(bool idSet) { _idSet = idSet; }
-    uint8_t id(void) { return _id; }
-    void setId(uint8_t id) { _id = id; }
-
-    static const char* _rotationNoneFactName;
-    static const char* _rotationYaw45FactName;
-    static const char* _rotationYaw90FactName;
-    static const char* _rotationYaw135FactName;
-    static const char* _rotationYaw180FactName;
-    static const char* _rotationYaw225FactName;
-    static const char* _rotationYaw270FactName;
-    static const char* _rotationYaw315FactName;
-    static const char* _rotationPitch90FactName;
-    static const char* _rotationPitch270FactName;
-
-private:
-    Fact _rotationNoneFact;
-    Fact _rotationYaw45Fact;
-    Fact _rotationYaw90Fact;
-    Fact _rotationYaw135Fact;
-    Fact _rotationYaw180Fact;
-    Fact _rotationYaw225Fact;
-    Fact _rotationYaw270Fact;
-    Fact _rotationYaw315Fact;
-    Fact _rotationPitch90Fact;
-    Fact _rotationPitch270Fact;
-
-    bool    _idSet; // true: _id is set to seen sensor id
-    uint8_t _id;    // The id for the sensor being tracked. Current support for only a single sensor.
-};
-
-class VehicleSetpointFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleSetpointFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* roll       READ roll       CONSTANT)
-    Q_PROPERTY(Fact* pitch      READ pitch      CONSTANT)
-    Q_PROPERTY(Fact* yaw        READ yaw        CONSTANT)
-    Q_PROPERTY(Fact* rollRate   READ rollRate   CONSTANT)
-    Q_PROPERTY(Fact* pitchRate  READ pitchRate  CONSTANT)
-    Q_PROPERTY(Fact* yawRate    READ yawRate    CONSTANT)
-
-    Fact* roll      (void) { return &_rollFact; }
-    Fact* pitch     (void) { return &_pitchFact; }
-    Fact* yaw       (void) { return &_yawFact; }
-    Fact* rollRate  (void) { return &_rollRateFact; }
-    Fact* pitchRate (void) { return &_pitchRateFact; }
-    Fact* yawRate   (void) { return &_yawRateFact; }
-
-    static const char* _rollFactName;
-    static const char* _pitchFactName;
-    static const char* _yawFactName;
-    static const char* _rollRateFactName;
-    static const char* _pitchRateFactName;
-    static const char* _yawRateFactName;
-
-private:
-    Fact _rollFact;
-    Fact _pitchFact;
-    Fact _yawFact;
-    Fact _rollRateFact;
-    Fact _pitchRateFact;
-    Fact _yawRateFact;
-};
-
-class VehicleVibrationFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleVibrationFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* xAxis      READ xAxis      CONSTANT)
-    Q_PROPERTY(Fact* yAxis      READ yAxis      CONSTANT)
-    Q_PROPERTY(Fact* zAxis      READ zAxis      CONSTANT)
-    Q_PROPERTY(Fact* clipCount1 READ clipCount1 CONSTANT)
-    Q_PROPERTY(Fact* clipCount2 READ clipCount2 CONSTANT)
-    Q_PROPERTY(Fact* clipCount3 READ clipCount3 CONSTANT)
-
-    Fact* xAxis         (void) { return &_xAxisFact; }
-    Fact* yAxis         (void) { return &_yAxisFact; }
-    Fact* zAxis         (void) { return &_zAxisFact; }
-    Fact* clipCount1    (void) { return &_clipCount1Fact; }
-    Fact* clipCount2    (void) { return &_clipCount2Fact; }
-    Fact* clipCount3    (void) { return &_clipCount3Fact; }
-
-    static const char* _xAxisFactName;
-    static const char* _yAxisFactName;
-    static const char* _zAxisFactName;
-    static const char* _clipCount1FactName;
-    static const char* _clipCount2FactName;
-    static const char* _clipCount3FactName;
-
-private:
-    Fact        _xAxisFact;
-    Fact        _yAxisFact;
-    Fact        _zAxisFact;
-    Fact        _clipCount1Fact;
-    Fact        _clipCount2Fact;
-    Fact        _clipCount3Fact;
-};
-
-class VehicleWindFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleWindFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* direction      READ direction      CONSTANT)
-    Q_PROPERTY(Fact* speed          READ speed          CONSTANT)
-    Q_PROPERTY(Fact* verticalSpeed  READ verticalSpeed  CONSTANT)
-
-    Fact* direction     (void) { return &_directionFact; }
-    Fact* speed         (void) { return &_speedFact; }
-    Fact* verticalSpeed (void) { return &_verticalSpeedFact; }
-
-    static const char* _directionFactName;
-    static const char* _speedFactName;
-    static const char* _verticalSpeedFactName;
-
-private:
-    Fact        _directionFact;
-    Fact        _speedFact;
-    Fact        _verticalSpeedFact;
-};
-
-class VehicleGPSFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleGPSFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* lat                READ lat                CONSTANT)
-    Q_PROPERTY(Fact* lon                READ lon                CONSTANT)
-    Q_PROPERTY(Fact* hdop               READ hdop               CONSTANT)
-    Q_PROPERTY(Fact* vdop               READ vdop               CONSTANT)
-    Q_PROPERTY(Fact* courseOverGround   READ courseOverGround   CONSTANT)
-    Q_PROPERTY(Fact* count              READ count              CONSTANT)
-    Q_PROPERTY(Fact* lock               READ lock               CONSTANT)
-
-    Fact* lat               (void) { return &_latFact; }
-    Fact* lon               (void) { return &_lonFact; }
-    Fact* hdop              (void) { return &_hdopFact; }
-    Fact* vdop              (void) { return &_vdopFact; }
-    Fact* courseOverGround  (void) { return &_courseOverGroundFact; }
-    Fact* count             (void) { return &_countFact; }
-    Fact* lock              (void) { return &_lockFact; }
-
-    static const char* _latFactName;
-    static const char* _lonFactName;
-    static const char* _hdopFactName;
-    static const char* _vdopFactName;
-    static const char* _courseOverGroundFactName;
-    static const char* _countFactName;
-    static const char* _lockFactName;
-
-private:
-    Fact        _latFact;
-    Fact        _lonFact;
-    Fact        _hdopFact;
-    Fact        _vdopFact;
-    Fact        _courseOverGroundFact;
-    Fact        _countFact;
-    Fact        _lockFact;
-};
-
-class VehicleBatteryFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleBatteryFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* voltage            READ voltage            CONSTANT)
-    Q_PROPERTY(Fact* percentRemaining   READ percentRemaining   CONSTANT)
-    Q_PROPERTY(Fact* mahConsumed        READ mahConsumed        CONSTANT)
-    Q_PROPERTY(Fact* current            READ current            CONSTANT)
-    Q_PROPERTY(Fact* temperature        READ temperature        CONSTANT)
-    Q_PROPERTY(Fact* cellCount          READ cellCount          CONSTANT)
-    Q_PROPERTY(Fact* instantPower       READ instantPower       CONSTANT)
-    Q_PROPERTY(Fact* timeRemaining      READ timeRemaining      CONSTANT)
-    Q_PROPERTY(Fact* chargeState        READ chargeState        CONSTANT)
-
-    Fact* voltage                   (void) { return &_voltageFact; }
-    Fact* percentRemaining          (void) { return &_percentRemainingFact; }
-    Fact* mahConsumed               (void) { return &_mahConsumedFact; }
-    Fact* current                   (void) { return &_currentFact; }
-    Fact* temperature               (void) { return &_temperatureFact; }
-    Fact* cellCount                 (void) { return &_cellCountFact; }
-    Fact* instantPower              (void) { return &_instantPowerFact; }
-    Fact* timeRemaining             (void) { return &_timeRemainingFact; }
-    Fact* chargeState               (void) { return &_chargeStateFact; }
-
-    static const char* _voltageFactName;
-    static const char* _percentRemainingFactName;
-    static const char* _mahConsumedFactName;
-    static const char* _currentFactName;
-    static const char* _temperatureFactName;
-    static const char* _cellCountFactName;
-    static const char* _instantPowerFactName;
-    static const char* _timeRemainingFactName;
-    static const char* _chargeStateFactName;
-
-    static const char* _settingsGroup;
-
-    static const double _voltageUnavailable;
-    static const int    _percentRemainingUnavailable;
-    static const int    _mahConsumedUnavailable;
-    static const int    _currentUnavailable;
-    static const double _temperatureUnavailable;
-    static const int    _cellCountUnavailable;
-    static const double _instantPowerUnavailable;
-
-private:
-    Fact            _voltageFact;
-    Fact            _percentRemainingFact;
-    Fact            _mahConsumedFact;
-    Fact            _currentFact;
-    Fact            _temperatureFact;
-    Fact            _cellCountFact;
-    Fact            _instantPowerFact;
-    Fact            _timeRemainingFact;
-    Fact            _chargeStateFact;
-};
-
-class VehicleTemperatureFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleTemperatureFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* temperature1       READ temperature1       CONSTANT)
-    Q_PROPERTY(Fact* temperature2       READ temperature2       CONSTANT)
-    Q_PROPERTY(Fact* temperature3       READ temperature3       CONSTANT)
-
-    Fact* temperature1 (void) { return &_temperature1Fact; }
-    Fact* temperature2 (void) { return &_temperature2Fact; }
-    Fact* temperature3 (void) { return &_temperature3Fact; }
-
-    static const char* _temperature1FactName;
-    static const char* _temperature2FactName;
-    static const char* _temperature3FactName;
-
-    static const char* _settingsGroup;
-
-    static const double _temperatureUnavailable;
-
-private:
-    Fact            _temperature1Fact;
-    Fact            _temperature2Fact;
-    Fact            _temperature3Fact;
-};
-
-class VehicleClockFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleClockFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* currentTime        READ currentTime        CONSTANT)
-    Q_PROPERTY(Fact* currentDate        READ currentDate        CONSTANT)
-
-    Fact* currentTime (void) { return &_currentTimeFact; }
-    Fact* currentDate (void) { return &_currentDateFact; }
-
-    static const char* _currentTimeFactName;
-    static const char* _currentDateFactName;
-
-    static const char* _settingsGroup;
-
-private slots:
-    void _updateAllValues(void) override;
-
-private:
-    Fact            _currentTimeFact;
-    Fact            _currentDateFact;
-};
-
-class VehicleEstimatorStatusFactGroup : public FactGroup
-{
-    Q_OBJECT
-
-public:
-    VehicleEstimatorStatusFactGroup(QObject* parent = nullptr);
-
-    Q_PROPERTY(Fact* goodAttitudeEstimate           READ goodAttitudeEstimate           CONSTANT)
-    Q_PROPERTY(Fact* goodHorizVelEstimate           READ goodHorizVelEstimate           CONSTANT)
-    Q_PROPERTY(Fact* goodVertVelEstimate            READ goodVertVelEstimate            CONSTANT)
-    Q_PROPERTY(Fact* goodHorizPosRelEstimate        READ goodHorizPosRelEstimate        CONSTANT)
-    Q_PROPERTY(Fact* goodHorizPosAbsEstimate        READ goodHorizPosAbsEstimate        CONSTANT)
-    Q_PROPERTY(Fact* goodVertPosAbsEstimate         READ goodVertPosAbsEstimate         CONSTANT)
-    Q_PROPERTY(Fact* goodVertPosAGLEstimate         READ goodVertPosAGLEstimate         CONSTANT)
-    Q_PROPERTY(Fact* goodConstPosModeEstimate       READ goodConstPosModeEstimate       CONSTANT)
-    Q_PROPERTY(Fact* goodPredHorizPosRelEstimate    READ goodPredHorizPosRelEstimate    CONSTANT)
-    Q_PROPERTY(Fact* goodPredHorizPosAbsEstimate    READ goodPredHorizPosAbsEstimate    CONSTANT)
-    Q_PROPERTY(Fact* gpsGlitch                      READ gpsGlitch                      CONSTANT)
-    Q_PROPERTY(Fact* accelError                     READ accelError                     CONSTANT)
-    Q_PROPERTY(Fact* velRatio                       READ velRatio                       CONSTANT)
-    Q_PROPERTY(Fact* horizPosRatio                  READ horizPosRatio                  CONSTANT)
-    Q_PROPERTY(Fact* vertPosRatio                   READ vertPosRatio                   CONSTANT)
-    Q_PROPERTY(Fact* magRatio                       READ magRatio                       CONSTANT)
-    Q_PROPERTY(Fact* haglRatio                      READ haglRatio                      CONSTANT)
-    Q_PROPERTY(Fact* tasRatio                       READ tasRatio                       CONSTANT)
-    Q_PROPERTY(Fact* horizPosAccuracy               READ horizPosAccuracy               CONSTANT)
-    Q_PROPERTY(Fact* vertPosAccuracy                READ vertPosAccuracy                CONSTANT)
-
-    Fact* goodAttitudeEstimate          (void) { return &_goodAttitudeEstimateFact; }
-    Fact* goodHorizVelEstimate          (void) { return &_goodHorizVelEstimateFact; }
-    Fact* goodVertVelEstimate           (void) { return &_goodVertVelEstimateFact; }
-    Fact* goodHorizPosRelEstimate       (void) { return &_goodHorizPosRelEstimateFact; }
-    Fact* goodHorizPosAbsEstimate       (void) { return &_goodHorizPosAbsEstimateFact; }
-    Fact* goodVertPosAbsEstimate        (void) { return &_goodVertPosAbsEstimateFact; }
-    Fact* goodVertPosAGLEstimate        (void) { return &_goodVertPosAGLEstimateFact; }
-    Fact* goodConstPosModeEstimate      (void) { return &_goodConstPosModeEstimateFact; }
-    Fact* goodPredHorizPosRelEstimate   (void) { return &_goodPredHorizPosRelEstimateFact; }
-    Fact* goodPredHorizPosAbsEstimate   (void) { return &_goodPredHorizPosAbsEstimateFact; }
-    Fact* gpsGlitch                     (void) { return &_gpsGlitchFact; }
-    Fact* accelError                    (void) { return &_accelErrorFact; }
-    Fact* velRatio                      (void) { return &_velRatioFact; }
-    Fact* horizPosRatio                 (void) { return &_horizPosRatioFact; }
-    Fact* vertPosRatio                  (void) { return &_vertPosRatioFact; }
-    Fact* magRatio                      (void) { return &_magRatioFact; }
-    Fact* haglRatio                     (void) { return &_haglRatioFact; }
-    Fact* tasRatio                      (void) { return &_tasRatioFact; }
-    Fact* horizPosAccuracy              (void) { return &_horizPosAccuracyFact; }
-    Fact* vertPosAccuracy               (void) { return &_vertPosAccuracyFact; }
-
-    static const char* _goodAttitudeEstimateFactName;
-    static const char* _goodHorizVelEstimateFactName;
-    static const char* _goodVertVelEstimateFactName;
-    static const char* _goodHorizPosRelEstimateFactName;
-    static const char* _goodHorizPosAbsEstimateFactName;
-    static const char* _goodVertPosAbsEstimateFactName;
-    static const char* _goodVertPosAGLEstimateFactName;
-    static const char* _goodConstPosModeEstimateFactName;
-    static const char* _goodPredHorizPosRelEstimateFactName;
-    static const char* _goodPredHorizPosAbsEstimateFactName;
-    static const char* _gpsGlitchFactName;
-    static const char* _accelErrorFactName;
-    static const char* _velRatioFactName;
-    static const char* _horizPosRatioFactName;
-    static const char* _vertPosRatioFactName;
-    static const char* _magRatioFactName;
-    static const char* _haglRatioFactName;
-    static const char* _tasRatioFactName;
-    static const char* _horizPosAccuracyFactName;
-    static const char* _vertPosAccuracyFactName;
-
-private:
-    Fact _goodAttitudeEstimateFact;
-    Fact _goodHorizVelEstimateFact;
-    Fact _goodVertVelEstimateFact;
-    Fact _goodHorizPosRelEstimateFact;
-    Fact _goodHorizPosAbsEstimateFact;
-    Fact _goodVertPosAbsEstimateFact;
-    Fact _goodVertPosAGLEstimateFact;
-    Fact _goodConstPosModeEstimateFact;
-    Fact _goodPredHorizPosRelEstimateFact;
-    Fact _goodPredHorizPosAbsEstimateFact;
-    Fact _gpsGlitchFact;
-    Fact _accelErrorFact;
-    Fact _velRatioFact;
-    Fact _horizPosRatioFact;
-    Fact _vertPosRatioFact;
-    Fact _magRatioFact;
-    Fact _haglRatioFact;
-    Fact _tasRatioFact;
-    Fact _horizPosAccuracyFact;
-    Fact _vertPosAccuracyFact;
-
-#if 0
-    typedef enum ESTIMATOR_STATUS_FLAGS
-    {
-       ESTIMATOR_ATTITUDE=1, /* True if the attitude estimate is good | */
-       ESTIMATOR_VELOCITY_HORIZ=2, /* True if the horizontal velocity estimate is good | */
-       ESTIMATOR_VELOCITY_VERT=4, /* True if the  vertical velocity estimate is good | */
-       ESTIMATOR_POS_HORIZ_REL=8, /* True if the horizontal position (relative) estimate is good | */
-       ESTIMATOR_POS_HORIZ_ABS=16, /* True if the horizontal position (absolute) estimate is good | */
-       ESTIMATOR_POS_VERT_ABS=32, /* True if the vertical position (absolute) estimate is good | */
-       ESTIMATOR_POS_VERT_AGL=64, /* True if the vertical position (above ground) estimate is good | */
-       ESTIMATOR_CONST_POS_MODE=128, /* True if the EKF is in a constant position mode and is not using external measurements (eg GPS or optical flow) | */
-       ESTIMATOR_PRED_POS_HORIZ_REL=256, /* True if the EKF has sufficient data to enter a mode that will provide a (relative) position estimate | */
-       ESTIMATOR_PRED_POS_HORIZ_ABS=512, /* True if the EKF has sufficient data to enter a mode that will provide a (absolute) position estimate | */
-       ESTIMATOR_GPS_GLITCH=1024, /* True if the EKF has detected a GPS glitch | */
-       ESTIMATOR_ACCEL_ERROR=2048, /* True if the EKF has detected bad accelerometer data | */
-
-        typedef struct __mavlink_estimator_status_t {
-         uint64_t time_usec; /*< Timestamp (micros since boot or Unix epoch)*/
-         float vel_ratio; /*< Velocity innovation test ratio*/
-         float pos_horiz_ratio; /*< Horizontal position innovation test ratio*/
-         float pos_vert_ratio; /*< Vertical position innovation test ratio*/
-         float mag_ratio; /*< Magnetometer innovation test ratio*/
-         float hagl_ratio; /*< Height above terrain innovation test ratio*/
-         float tas_ratio; /*< True airspeed innovation test ratio*/
-         float pos_horiz_accuracy; /*< Horizontal position 1-STD accuracy relative to the EKF local origin (m)*/
-         float pos_vert_accuracy; /*< Vertical position 1-STD accuracy relative to the EKF local origin (m)*/
-         uint16_t flags; /*< Integer bitmask indicating which EKF outputs are valid. See definition for ESTIMATOR_STATUS_FLAGS.*/
-        } mavlink_estimator_status_t;
-    };
-#endif
-};
-
-class Vehicle : public FactGroup
-{
-    Q_OBJECT
+    friend class GimbalController;                  // Allow GimbalController to call _addFactGroup
 
 public:
     Vehicle(LinkInterface*          link,
@@ -496,195 +119,147 @@ public:
             int                     defaultComponentId,
             MAV_AUTOPILOT           firmwareType,
             MAV_TYPE                vehicleType,
-            FirmwarePluginManager*  firmwarePluginManager,
-            JoystickManager*        joystickManager);
+            QObject*                parent = nullptr);
+
+    // Pass these into the offline constructor to create an offline vehicle which tracks the offline vehicle settings.
+    // Keep these as valid enum values to avoid UBSan failures on enum loads/comparisons.
+    // Use ENUM_END sentinels — no real component should report these values.
+    static const MAV_AUTOPILOT    MAV_AUTOPILOT_TRACK = MAV_AUTOPILOT_ENUM_END;
+    static const MAV_TYPE         MAV_TYPE_TRACK = MAV_TYPE_ENUM_END;
 
     // The following is used to create a disconnected Vehicle for use while offline editing.
     Vehicle(MAV_AUTOPILOT           firmwareType,
             MAV_TYPE                vehicleType,
-            FirmwarePluginManager*  firmwarePluginManager,
             QObject*                parent = nullptr);
 
     ~Vehicle();
 
-    /// Sensor bits from sensors*Bits properties
-    enum MavlinkSysStatus {
-        SysStatusSensor3dGyro =                 MAV_SYS_STATUS_SENSOR_3D_GYRO,
-        SysStatusSensor3dAccel =                MAV_SYS_STATUS_SENSOR_3D_ACCEL,
-        SysStatusSensor3dMag =                  MAV_SYS_STATUS_SENSOR_3D_MAG,
-        SysStatusSensorAbsolutePressure =       MAV_SYS_STATUS_SENSOR_ABSOLUTE_PRESSURE,
-        SysStatusSensorDifferentialPressure =   MAV_SYS_STATUS_SENSOR_DIFFERENTIAL_PRESSURE,
-        SysStatusSensorGPS =                    MAV_SYS_STATUS_SENSOR_GPS,
-        SysStatusSensorOpticalFlow =            MAV_SYS_STATUS_SENSOR_OPTICAL_FLOW,
-        SysStatusSensorVisionPosition =         MAV_SYS_STATUS_SENSOR_VISION_POSITION,
-        SysStatusSensorLaserPosition =          MAV_SYS_STATUS_SENSOR_LASER_POSITION,
-        SysStatusSensorExternalGroundTruth =    MAV_SYS_STATUS_SENSOR_EXTERNAL_GROUND_TRUTH,
-        SysStatusSensorAngularRateControl =     MAV_SYS_STATUS_SENSOR_ANGULAR_RATE_CONTROL,
-        SysStatusSensorAttitudeStabilization =  MAV_SYS_STATUS_SENSOR_ATTITUDE_STABILIZATION,
-        SysStatusSensorYawPosition =            MAV_SYS_STATUS_SENSOR_YAW_POSITION,
-        SysStatusSensorZAltitudeControl =       MAV_SYS_STATUS_SENSOR_Z_ALTITUDE_CONTROL,
-        SysStatusSensorXYPositionControl =      MAV_SYS_STATUS_SENSOR_XY_POSITION_CONTROL,
-        SysStatusSensorMotorOutputs =           MAV_SYS_STATUS_SENSOR_MOTOR_OUTPUTS,
-        SysStatusSensorRCReceiver =             MAV_SYS_STATUS_SENSOR_RC_RECEIVER,
-        SysStatusSensor3dGyro2 =                MAV_SYS_STATUS_SENSOR_3D_GYRO2,
-        SysStatusSensor3dAccel2 =               MAV_SYS_STATUS_SENSOR_3D_ACCEL2,
-        SysStatusSensor3dMag2 =                 MAV_SYS_STATUS_SENSOR_3D_MAG2,
-        SysStatusSensorGeoFence =               MAV_SYS_STATUS_GEOFENCE,
-        SysStatusSensorAHRS =                   MAV_SYS_STATUS_AHRS,
-        SysStatusSensorTerrain =                MAV_SYS_STATUS_TERRAIN,
-        SysStatusSensorReverseMotor =           MAV_SYS_STATUS_REVERSE_MOTOR,
-        SysStatusSensorLogging =                MAV_SYS_STATUS_LOGGING,
-        SysStatusSensorBattery =                MAV_SYS_STATUS_SENSOR_BATTERY,
+    enum CheckList {
+        CheckListNotSetup = 0,
+        CheckListPassed,
+        CheckListFailed,
     };
-    Q_ENUM(MavlinkSysStatus)
+    Q_ENUM(CheckList)
 
-    Q_PROPERTY(int                  id                      READ id                                                     CONSTANT)
-    Q_PROPERTY(AutoPilotPlugin*     autopilot               MEMBER _autopilotPlugin                                     CONSTANT)
-    Q_PROPERTY(QGeoCoordinate       coordinate              READ coordinate                                             NOTIFY coordinateChanged)
-    Q_PROPERTY(QGeoCoordinate       homePosition            READ homePosition                                           NOTIFY homePositionChanged)
-    Q_PROPERTY(bool                 armed                   READ armed                  WRITE setArmed                  NOTIFY armedChanged)
-    Q_PROPERTY(bool                 autoDisarm              READ autoDisarm                                             NOTIFY autoDisarmChanged)
-    Q_PROPERTY(bool                 flightModeSetAvailable  READ flightModeSetAvailable                                 CONSTANT)
-    Q_PROPERTY(QStringList          flightModes             READ flightModes                                            NOTIFY flightModesChanged)
-    Q_PROPERTY(QString              flightMode              READ flightMode             WRITE setFlightMode             NOTIFY flightModeChanged)
-    Q_PROPERTY(bool                 hilMode                 READ hilMode                WRITE setHilMode                NOTIFY hilModeChanged)
-    Q_PROPERTY(QmlObjectListModel*  trajectoryPoints        READ trajectoryPoints                                       CONSTANT)
-    Q_PROPERTY(QmlObjectListModel*  cameraTriggerPoints     READ cameraTriggerPoints                                    CONSTANT)
-    Q_PROPERTY(float                latitude                READ latitude                                               NOTIFY coordinateChanged)
-    Q_PROPERTY(float                longitude               READ longitude                                              NOTIFY coordinateChanged)
-    Q_PROPERTY(bool                 messageTypeNone         READ messageTypeNone                                        NOTIFY messageTypeChanged)
-    Q_PROPERTY(bool                 messageTypeNormal       READ messageTypeNormal                                      NOTIFY messageTypeChanged)
-    Q_PROPERTY(bool                 messageTypeWarning      READ messageTypeWarning                                     NOTIFY messageTypeChanged)
-    Q_PROPERTY(bool                 messageTypeError        READ messageTypeError                                       NOTIFY messageTypeChanged)
-    Q_PROPERTY(int                  newMessageCount         READ newMessageCount                                        NOTIFY newMessageCountChanged)
-    Q_PROPERTY(int                  messageCount            READ messageCount                                           NOTIFY messageCountChanged)
-    Q_PROPERTY(QString              formatedMessages        READ formatedMessages                                       NOTIFY formatedMessagesChanged)
-    Q_PROPERTY(QString              formatedMessage         READ formatedMessage                                        NOTIFY formatedMessageChanged)
-    Q_PROPERTY(QString              latestError             READ latestError                                            NOTIFY latestErrorChanged)
-    Q_PROPERTY(int                  joystickMode            READ joystickMode           WRITE setJoystickMode           NOTIFY joystickModeChanged)
-    Q_PROPERTY(QStringList          joystickModes           READ joystickModes                                          CONSTANT)
-    Q_PROPERTY(bool                 joystickEnabled         READ joystickEnabled        WRITE setJoystickEnabled        NOTIFY joystickEnabledChanged)
-    Q_PROPERTY(bool                 active                  READ active                 WRITE setActive                 NOTIFY activeChanged)
-    Q_PROPERTY(int                  flowImageIndex          READ flowImageIndex                                         NOTIFY flowImageIndexChanged)
-    Q_PROPERTY(int                  rcRSSI                  READ rcRSSI                                                 NOTIFY rcRSSIChanged)
-    Q_PROPERTY(bool                 px4Firmware             READ px4Firmware                                            NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(bool                 apmFirmware             READ apmFirmware                                            NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(bool                 soloFirmware            READ soloFirmware           WRITE setSoloFirmware           NOTIFY soloFirmwareChanged)
-    Q_PROPERTY(bool                 genericFirmware         READ genericFirmware                                        CONSTANT)
-    Q_PROPERTY(bool                 connectionLost          READ connectionLost                                         NOTIFY connectionLostChanged)
-    Q_PROPERTY(bool                 connectionLostEnabled   READ connectionLostEnabled  WRITE setConnectionLostEnabled  NOTIFY connectionLostEnabledChanged)
-    Q_PROPERTY(uint                 messagesReceived        READ messagesReceived                                       NOTIFY messagesReceivedChanged)
-    Q_PROPERTY(uint                 messagesSent            READ messagesSent                                           NOTIFY messagesSentChanged)
-    Q_PROPERTY(uint                 messagesLost            READ messagesLost                                           NOTIFY messagesLostChanged)
-    Q_PROPERTY(bool                 fixedWing               READ fixedWing                                              NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(bool                 multiRotor              READ multiRotor                                             NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(bool                 vtol                    READ vtol                                                   NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(bool                 rover                   READ rover                                                  NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(bool                 sub                     READ sub                                                    NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(bool        supportsThrottleModeCenterZero   READ supportsThrottleModeCenterZero                         CONSTANT)
-    Q_PROPERTY(bool                supportsNegativeThrust   READ supportsNegativeThrust                                 CONSTANT)
-    Q_PROPERTY(bool                 supportsJSButton        READ supportsJSButton                                       CONSTANT)
-    Q_PROPERTY(bool                 supportsRadio           READ supportsRadio                                          CONSTANT)
-    Q_PROPERTY(bool               supportsMotorInterference READ supportsMotorInterference                              CONSTANT)
-    Q_PROPERTY(bool                 autoDisconnect          MEMBER _autoDisconnect                                      NOTIFY autoDisconnectChanged)
-    Q_PROPERTY(QString              prearmError             READ prearmError            WRITE setPrearmError            NOTIFY prearmErrorChanged)
-    Q_PROPERTY(int                  motorCount              READ motorCount                                             CONSTANT)
-    Q_PROPERTY(bool                 coaxialMotors           READ coaxialMotors                                          CONSTANT)
-    Q_PROPERTY(bool                 xConfigMotors           READ xConfigMotors                                          CONSTANT)
-    Q_PROPERTY(bool                 isOfflineEditingVehicle READ isOfflineEditingVehicle                                CONSTANT)
-    Q_PROPERTY(QString              brandImageIndoor        READ brandImageIndoor                                       NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(QString              brandImageOutdoor       READ brandImageOutdoor                                      NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(QStringList          unhealthySensors        READ unhealthySensors                                       NOTIFY unhealthySensorsChanged)
-    Q_PROPERTY(int                  sensorsPresentBits      READ sensorsPresentBits                                     NOTIFY sensorsPresentBitsChanged)
-    Q_PROPERTY(int                  sensorsEnabledBits      READ sensorsEnabledBits                                     NOTIFY sensorsEnabledBitsChanged)
-    Q_PROPERTY(int                  sensorsHealthBits       READ sensorsHealthBits                                      NOTIFY sensorsHealthBitsChanged)
-    Q_PROPERTY(int                  sensorsUnhealthyBits    READ sensorsUnhealthyBits                                   NOTIFY sensorsUnhealthyBitsChanged) ///< Combination of enabled and health
-    Q_PROPERTY(QString              missionFlightMode       READ missionFlightMode                                      CONSTANT)
-    Q_PROPERTY(QString              pauseFlightMode         READ pauseFlightMode                                        CONSTANT)
-    Q_PROPERTY(QString              rtlFlightMode           READ rtlFlightMode                                          CONSTANT)
-    Q_PROPERTY(QString              smartRTLFlightMode      READ smartRTLFlightMode                                     CONSTANT)
-    Q_PROPERTY(bool                 supportsSmartRTL        READ supportsSmartRTL                                       CONSTANT)
-    Q_PROPERTY(QString              landFlightMode          READ landFlightMode                                         CONSTANT)
-    Q_PROPERTY(QString              takeControlFlightMode   READ takeControlFlightMode                                  CONSTANT)
-    Q_PROPERTY(QString              firmwareTypeString      READ firmwareTypeString                                     NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(QString              vehicleTypeString       READ vehicleTypeString                                      NOTIFY vehicleTypeChanged)
-    Q_PROPERTY(QString              vehicleImageOpaque      READ vehicleImageOpaque                                     CONSTANT)
-    Q_PROPERTY(QString              vehicleImageOutline     READ vehicleImageOutline                                    CONSTANT)
-    Q_PROPERTY(QString              vehicleImageCompass     READ vehicleImageCompass                                    CONSTANT)
-    Q_PROPERTY(int                  telemetryRRSSI          READ telemetryRRSSI                                         NOTIFY telemetryRRSSIChanged)
-    Q_PROPERTY(int                  telemetryLRSSI          READ telemetryLRSSI                                         NOTIFY telemetryLRSSIChanged)
-    Q_PROPERTY(unsigned int         telemetryRXErrors       READ telemetryRXErrors                                      NOTIFY telemetryRXErrorsChanged)
-    Q_PROPERTY(unsigned int         telemetryFixed          READ telemetryFixed                                         NOTIFY telemetryFixedChanged)
-    Q_PROPERTY(unsigned int         telemetryTXBuffer       READ telemetryTXBuffer                                      NOTIFY telemetryTXBufferChanged)
-    Q_PROPERTY(int                  telemetryLNoise         READ telemetryLNoise                                        NOTIFY telemetryLNoiseChanged)
-    Q_PROPERTY(int                  telemetryRNoise         READ telemetryRNoise                                        NOTIFY telemetryRNoiseChanged)
-    Q_PROPERTY(QVariantList         toolBarIndicators       READ toolBarIndicators                                      NOTIFY toolBarIndicatorsChanged)
-    Q_PROPERTY(QmlObjectListModel*  adsbVehicles            READ adsbVehicles                                           CONSTANT)
-    Q_PROPERTY(bool              initialPlanRequestComplete READ initialPlanRequestComplete                             NOTIFY initialPlanRequestCompleteChanged)
-    Q_PROPERTY(QVariantList         staticCameraList        READ staticCameraList                                       CONSTANT)
-    Q_PROPERTY(QGCCameraManager*    dynamicCameras          READ dynamicCameras                                         NOTIFY dynamicCamerasChanged)
-    Q_PROPERTY(QString              hobbsMeter              READ hobbsMeter                                             NOTIFY hobbsMeterChanged)
-    Q_PROPERTY(bool                 vtolInFwdFlight         READ vtolInFwdFlight        WRITE setVtolInFwdFlight        NOTIFY vtolInFwdFlightChanged)
-    Q_PROPERTY(bool                 highLatencyLink         READ highLatencyLink                                        NOTIFY highLatencyLinkChanged)
-    Q_PROPERTY(bool                 supportsTerrainFrame    READ supportsTerrainFrame                                   NOTIFY firmwareTypeChanged)
-    Q_PROPERTY(QString              priorityLinkName        READ priorityLinkName       WRITE setPriorityLinkByName     NOTIFY priorityLinkNameChanged)
-    Q_PROPERTY(QVariantList         links                   READ links                                                  NOTIFY linksChanged)
-    Q_PROPERTY(LinkInterface*       priorityLink            READ priorityLink                                           NOTIFY priorityLinkNameChanged)
-    Q_PROPERTY(quint64              mavlinkSentCount        READ mavlinkSentCount                                       NOTIFY mavlinkStatusChanged)
-    Q_PROPERTY(quint64              mavlinkReceivedCount    READ mavlinkReceivedCount                                   NOTIFY mavlinkStatusChanged)
-    Q_PROPERTY(quint64              mavlinkLossCount        READ mavlinkLossCount                                       NOTIFY mavlinkStatusChanged)
-    Q_PROPERTY(float                mavlinkLossPercent      READ mavlinkLossPercent                                     NOTIFY mavlinkStatusChanged)
-    Q_PROPERTY(qreal                gimbalRoll              READ gimbalRoll                                             NOTIFY gimbalRollChanged)
-    Q_PROPERTY(qreal                gimbalPitch             READ gimbalPitch                                            NOTIFY gimbalPitchChanged)
-    Q_PROPERTY(qreal                gimbalYaw               READ gimbalYaw                                              NOTIFY gimbalYawChanged)
-    Q_PROPERTY(bool                 gimbalData              READ gimbalData                                             NOTIFY gimbalDataChanged)
+    Q_PROPERTY(int                  id                          READ id                                                             CONSTANT)
+    Q_PROPERTY(AutoPilotPlugin*     autopilotPlugin             MEMBER _autopilotPlugin                                             CONSTANT)
+    Q_PROPERTY(QGeoCoordinate       coordinate                  READ coordinate                                                     NOTIFY coordinateChanged)
+    Q_PROPERTY(QGeoCoordinate       homePosition                READ homePosition                                                   NOTIFY homePositionChanged)
+    Q_PROPERTY(QGeoCoordinate       armedPosition               READ armedPosition                                                  NOTIFY armedPositionChanged)
+    Q_PROPERTY(bool                 armed                       READ armed                      WRITE setArmedShowError             NOTIFY armedChanged)
+    Q_PROPERTY(bool                 autoDisarm                  READ autoDisarm                                                     NOTIFY autoDisarmChanged)
+    Q_PROPERTY(bool                 flightModeSetAvailable      READ flightModeSetAvailable                                         CONSTANT)
+    Q_PROPERTY(QStringList          flightModes                 READ flightModes                                                    NOTIFY flightModesChanged)
+    Q_PROPERTY(QString              flightMode                  READ flightMode                 WRITE setFlightMode                 NOTIFY flightModeChanged)
+    Q_PROPERTY(TrajectoryPoints*    trajectoryPoints            MEMBER _trajectoryPoints                                            CONSTANT)
+    Q_PROPERTY(QmlObjectListModel*  cameraTriggerPoints         READ cameraTriggerPoints                                            CONSTANT)
+    Q_PROPERTY(float                latitude                    READ latitude                                                       NOTIFY coordinateChanged)
+    Q_PROPERTY(float                longitude                   READ longitude                                                      NOTIFY coordinateChanged)
+    Q_PROPERTY(bool                 px4Firmware                 READ px4Firmware                                                    NOTIFY firmwareTypeChanged)
+    Q_PROPERTY(bool                 apmFirmware                 READ apmFirmware                                                    NOTIFY firmwareTypeChanged)
+    Q_PROPERTY(bool                 soloFirmware                READ soloFirmware               WRITE setSoloFirmware               NOTIFY soloFirmwareChanged)
+    Q_PROPERTY(bool                 genericFirmware             READ genericFirmware                                                CONSTANT)
+    Q_PROPERTY(uint                 messagesReceived            READ messagesReceived                                               NOTIFY messagesReceivedChanged)
+    Q_PROPERTY(uint                 messagesSent                READ messagesSent                                                   NOTIFY messagesSentChanged)
+    Q_PROPERTY(uint                 messagesLost                READ messagesLost                                                   NOTIFY messagesLostChanged)
+    Q_PROPERTY(bool                 airship                     READ airship                                                        NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(bool                 fixedWing                   READ fixedWing                                                      NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(bool                 multiRotor                  READ multiRotor                                                     NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(bool                 vtol                        READ vtol                                                           NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(bool                 rover                       READ rover                                                          NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(bool                 sub                         READ sub                                                            NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(VehicleSupports*     supports                    READ supports                                                       CONSTANT)
+    Q_PROPERTY(QString              prearmError                 READ prearmError                WRITE setPrearmError                NOTIFY prearmErrorChanged)
+    Q_PROPERTY(int                  motorCount                  READ motorCount                                                     CONSTANT)
+    Q_PROPERTY(bool                 coaxialMotors               READ coaxialMotors                                                  CONSTANT)
+    Q_PROPERTY(bool                 xConfigMotors               READ xConfigMotors                                                  CONSTANT)
+    Q_PROPERTY(bool                 isOfflineEditingVehicle     READ isOfflineEditingVehicle                                        CONSTANT)
+    Q_PROPERTY(int                  sensorsPresentBits          READ sensorsPresentBits                                             NOTIFY sensorsPresentBitsChanged)
+    Q_PROPERTY(int                  sensorsEnabledBits          READ sensorsEnabledBits                                             NOTIFY sensorsEnabledBitsChanged)
+    Q_PROPERTY(int                  sensorsHealthBits           READ sensorsHealthBits                                              NOTIFY sensorsHealthBitsChanged)
+    Q_PROPERTY(int                  sensorsUnhealthyBits        READ sensorsUnhealthyBits                                           NOTIFY sensorsUnhealthyBitsChanged) ///< Combination of enabled and health
+    Q_PROPERTY(QString              missionFlightMode           READ missionFlightMode                                              CONSTANT)
+    Q_PROPERTY(QString              pauseFlightMode             READ pauseFlightMode                                                CONSTANT)
+    Q_PROPERTY(QString              rtlFlightMode               READ rtlFlightMode                                                  CONSTANT)
+    Q_PROPERTY(QString              smartRTLFlightMode          READ smartRTLFlightMode                                             CONSTANT)
+    Q_PROPERTY(QString              landFlightMode              READ landFlightMode                                                 CONSTANT)
+    Q_PROPERTY(QString              takeControlFlightMode       READ takeControlFlightMode                                          CONSTANT)
+    Q_PROPERTY(QString              followFlightMode            READ followFlightMode                                               CONSTANT)
+    Q_PROPERTY(QString              motorDetectionFlightMode    READ motorDetectionFlightMode                                       CONSTANT)
+    Q_PROPERTY(QString              stabilizedFlightMode        READ stabilizedFlightMode                                           CONSTANT)
+    Q_PROPERTY(QString              firmwareTypeString          READ firmwareTypeString                                             NOTIFY firmwareTypeChanged)
+    Q_PROPERTY(QString              vehicleTypeString           READ vehicleTypeString                                              NOTIFY vehicleTypeChanged)
+    Q_PROPERTY(QString              vehicleImageOpaque          READ vehicleImageOpaque                                             CONSTANT)
+    Q_PROPERTY(QString              vehicleImageOutline         READ vehicleImageOutline                                            CONSTANT)
+    Q_PROPERTY(QVariantList         toolIndicators              READ toolIndicators                                                 NOTIFY toolIndicatorsChanged)
+    Q_PROPERTY(bool              initialPlanRequestComplete     READ initialPlanRequestComplete                                     NOTIFY initialPlanRequestCompleteChanged)
+    Q_PROPERTY(QString              hobbsMeter                  READ hobbsMeter                                                     NOTIFY hobbsMeterChanged)
+    Q_PROPERTY(bool                 inFwdFlight                 READ inFwdFlight                                                    NOTIFY inFwdFlightChanged)
+    Q_PROPERTY(bool                 vtolInFwdFlight             READ vtolInFwdFlight            WRITE setVtolInFwdFlight            NOTIFY vtolInFwdFlightChanged)
+    Q_PROPERTY(quint64              mavlinkSentCount            READ mavlinkSentCount                                               NOTIFY mavlinkStatusChanged)
+    Q_PROPERTY(quint64              mavlinkReceivedCount        READ mavlinkReceivedCount                                           NOTIFY mavlinkStatusChanged)
+    Q_PROPERTY(quint64              mavlinkLossCount            READ mavlinkLossCount                                               NOTIFY mavlinkStatusChanged)
+    Q_PROPERTY(float                mavlinkLossPercent          READ mavlinkLossPercent                                             NOTIFY mavlinkStatusChanged)
+    Q_PROPERTY(GimbalController*    gimbalController            READ gimbalController                                               CONSTANT)
+    Q_PROPERTY(bool                 hasGripper                  READ hasGripper                                                     NOTIFY hasGripperChanged)
+    Q_PROPERTY(bool                 isROIEnabled                READ isROIEnabled                                                   NOTIFY isROIEnabledChanged)
+    Q_PROPERTY(double               roiRelativeAltitudeMeters   READ roiRelativeAltitudeMeters                                      NOTIFY roiRelativeAltitudeMetersChanged)
+    Q_PROPERTY(CheckList            checkListState              READ checkListState             WRITE setCheckListState             NOTIFY checkListStateChanged)
+    Q_PROPERTY(bool                 readyToFlyAvailable         READ readyToFlyAvailable                                            NOTIFY readyToFlyAvailableChanged)  ///< true: readyToFly signalling is available on this vehicle
+    Q_PROPERTY(bool                 readyToFly                  READ readyToFly                                                     NOTIFY readyToFlyChanged)
+    Q_PROPERTY(QObject*             sysStatusSensorInfo         READ sysStatusSensorInfo                                            CONSTANT)
+    Q_PROPERTY(bool                 allSensorsHealthy           READ allSensorsHealthy                                              NOTIFY allSensorsHealthyChanged)    //< true: all sensors in SYS_STATUS reported as healthy
+    Q_PROPERTY(bool                 requiresGpsFix              READ requiresGpsFix                                                 NOTIFY requiresGpsFixChanged)
+    Q_PROPERTY(bool                 rebootRequired              READ rebootRequired                                                 NOTIFY rebootRequiredChanged)
+    Q_PROPERTY(QString              newStableFirmwareVersion    READ newStableFirmwareVersion                                       NOTIFY newStableFirmwareVersionChanged) ///< Non-empty when vehicle firmware is older than this stable version
+    Q_PROPERTY(bool                 newStableFirmwareVersionAcknowledged READ newStableFirmwareVersionAcknowledged                  NOTIFY newStableFirmwareVersionChanged)
+    Q_PROPERTY(double               loadProgress                READ loadProgress                                                   NOTIFY loadProgressChanged)
+    Q_PROPERTY(bool                 initialConnectComplete      READ isInitialConnectComplete                                       NOTIFY initialConnectComplete)
 
     // The following properties relate to Orbit status
     Q_PROPERTY(bool             orbitActive     READ orbitActive        NOTIFY orbitActiveChanged)
     Q_PROPERTY(QGCMapCircle*    orbitMapCircle  READ orbitMapCircle     CONSTANT)
 
     // Vehicle state used for guided control
-    Q_PROPERTY(bool     flying                  READ flying                                         NOTIFY flyingChanged)       ///< Vehicle is flying
+    Q_PROPERTY(bool underway READ underway NOTIFY underwayChanged)  ///< Vehicle is flying, driving or diving
+    Q_PROPERTY(
+        bool airborne READ airborne NOTIFY airborneChanged)  ///< Vehicle is underway and is not a rover/boat or sub
     Q_PROPERTY(bool     landing                 READ landing                                        NOTIFY landingChanged)      ///< Vehicle is in landing pattern (DO_LAND_START)
     Q_PROPERTY(bool     guidedMode              READ guidedMode                 WRITE setGuidedMode NOTIFY guidedModeChanged)   ///< Vehicle is in Guided mode and can respond to guided commands
-    Q_PROPERTY(bool     guidedModeSupported     READ guidedModeSupported                            CONSTANT)                   ///< Guided mode commands are supported by this vehicle
-    Q_PROPERTY(bool     pauseVehicleSupported   READ pauseVehicleSupported                          CONSTANT)                   ///< Pause vehicle command is supported
-    Q_PROPERTY(bool     orbitModeSupported      READ orbitModeSupported                             CONSTANT)                   ///< Orbit mode is supported by this vehicle
-    Q_PROPERTY(bool     takeoffVehicleSupported READ takeoffVehicleSupported                        CONSTANT)                   ///< Guided takeoff supported
     Q_PROPERTY(QString  gotoFlightMode          READ gotoFlightMode                                 CONSTANT)                   ///< Flight mode vehicle is in while performing goto
+    Q_PROPERTY(bool     haveMRSpeedLimits       READ haveMRSpeedLimits                              NOTIFY haveMRSpeedLimChanged)
+    Q_PROPERTY(bool     haveFWSpeedLimits       READ haveFWSpeedLimits                              NOTIFY haveFWSpeedLimChanged)
 
     Q_PROPERTY(ParameterManager*        parameterManager    READ parameterManager   CONSTANT)
+    Q_PROPERTY(VehicleLinkManager*      vehicleLinkManager  READ vehicleLinkManager CONSTANT)
     Q_PROPERTY(VehicleObjectAvoidance*  objectAvoidance     READ objectAvoidance    CONSTANT)
+    Q_PROPERTY(Autotune*                autotune            READ autotune           CONSTANT)
+    Q_PROPERTY(RemoteIDManager*         remoteIDManager     READ remoteIDManager    CONSTANT)
 
     // FactGroup object model properties
 
-    Q_PROPERTY(Fact* roll               READ roll               CONSTANT)
-    Q_PROPERTY(Fact* pitch              READ pitch              CONSTANT)
-    Q_PROPERTY(Fact* heading            READ heading            CONSTANT)
-    Q_PROPERTY(Fact* rollRate           READ rollRate           CONSTANT)
-    Q_PROPERTY(Fact* pitchRate          READ pitchRate          CONSTANT)
-    Q_PROPERTY(Fact* yawRate            READ yawRate            CONSTANT)
-    Q_PROPERTY(Fact* groundSpeed        READ groundSpeed        CONSTANT)
-    Q_PROPERTY(Fact* airSpeed           READ airSpeed           CONSTANT)
-    Q_PROPERTY(Fact* climbRate          READ climbRate          CONSTANT)
-    Q_PROPERTY(Fact* altitudeRelative   READ altitudeRelative   CONSTANT)
-    Q_PROPERTY(Fact* altitudeAMSL       READ altitudeAMSL       CONSTANT)
-    Q_PROPERTY(Fact* flightDistance     READ flightDistance     CONSTANT)
-    Q_PROPERTY(Fact* distanceToHome     READ distanceToHome     CONSTANT)
-    Q_PROPERTY(Fact* headingToHome      READ headingToHome      CONSTANT)
-    Q_PROPERTY(Fact* distanceToGCS      READ distanceToGCS      CONSTANT)
-    Q_PROPERTY(Fact* hobbs              READ hobbs              CONSTANT)
-    Q_PROPERTY(Fact* throttlePct        READ throttlePct        CONSTANT)
+    Q_PROPERTY(FactGroup*           vehicle         READ vehicleFactGroup           CONSTANT)
+    Q_PROPERTY(VehicleGPSFactGroup* gps READ gpsFactGroup CONSTANT)
+    Q_PROPERTY(VehicleGPSFactGroup* gps2 READ gps2FactGroup CONSTANT)
+    Q_PROPERTY(FactGroup*           wind            READ windFactGroup              CONSTANT)
+    Q_PROPERTY(FactGroup*           vibration       READ vibrationFactGroup         CONSTANT)
+    Q_PROPERTY(FactGroup*           temperature     READ temperatureFactGroup       CONSTANT)
+    Q_PROPERTY(FactGroup*           clock           READ clockFactGroup             CONSTANT)
+    Q_PROPERTY(FactGroup*           setpoint        READ setpointFactGroup          CONSTANT)
+    Q_PROPERTY(FactGroup*           estimatorStatus READ estimatorStatusFactGroup   CONSTANT)
+    Q_PROPERTY(FactGroup*           terrain         READ terrainFactGroup           CONSTANT)
+    Q_PROPERTY(FactGroup*           distanceSensors READ distanceSensorFactGroup    CONSTANT)
+    Q_PROPERTY(FactGroup*           localPosition   READ localPositionFactGroup     CONSTANT)
+    Q_PROPERTY(FactGroup*           localPositionSetpoint READ localPositionSetpointFactGroup CONSTANT)
+    Q_PROPERTY(FactGroup*           hygrometer      READ hygrometerFactGroup        CONSTANT)
+    Q_PROPERTY(FactGroup*           generator       READ generatorFactGroup         CONSTANT)
+    Q_PROPERTY(FactGroup*           efi             READ efiFactGroup               CONSTANT)
+    Q_PROPERTY(FactGroup*           radioStatus     READ radioStatusFactGroup       CONSTANT)
+    Q_PROPERTY(Actuators*           actuators       READ actuators                  CONSTANT)
 
-    Q_PROPERTY(FactGroup* gps               READ gpsFactGroup               CONSTANT)
-    Q_PROPERTY(FactGroup* battery           READ battery1FactGroup          CONSTANT)
-    Q_PROPERTY(FactGroup* battery2          READ battery2FactGroup          CONSTANT)
-    Q_PROPERTY(FactGroup* wind              READ windFactGroup              CONSTANT)
-    Q_PROPERTY(FactGroup* vibration         READ vibrationFactGroup         CONSTANT)
-    Q_PROPERTY(FactGroup* temperature       READ temperatureFactGroup       CONSTANT)
-    Q_PROPERTY(FactGroup* clock             READ clockFactGroup             CONSTANT)
-    Q_PROPERTY(FactGroup* setpoint          READ setpointFactGroup          CONSTANT)
-    Q_PROPERTY(FactGroup* estimatorStatus   READ estimatorStatusFactGroup   CONSTANT)
+    // Dynamic FactGroupListModel properties
+    Q_PROPERTY(QmlObjectListModel*  batteries       READ batteries                  CONSTANT)
+    Q_PROPERTY(QmlObjectListModel*  escs            READ escs                       CONSTANT)
 
     Q_PROPERTY(int      firmwareMajorVersion        READ firmwareMajorVersion       NOTIFY firmwareVersionChanged)
     Q_PROPERTY(int      firmwareMinorVersion        READ firmwareMinorVersion       NOTIFY firmwareVersionChanged)
@@ -698,51 +273,86 @@ public:
     Q_PROPERTY(quint64  vehicleUID                  READ vehicleUID                 NOTIFY vehicleUIDChanged)
     Q_PROPERTY(QString  vehicleUIDStr               READ vehicleUIDStr              NOTIFY vehicleUIDChanged)
 
+    Q_PROPERTY(VehicleSigningController* signingController READ signingController CONSTANT)
+
     /// Resets link status counters
     Q_INVOKABLE void resetCounters  ();
 
-    // Called when the message drop-down is invoked to clear current count
-    Q_INVOKABLE void        resetMessages();
-
     Q_INVOKABLE void virtualTabletJoystickValue(double roll, double pitch, double yaw, double thrust);
-    Q_INVOKABLE void disconnectInactiveVehicle(void);
 
     /// Command vehicle to return to launch
     Q_INVOKABLE void guidedModeRTL(bool smartRTL);
 
     /// Command vehicle to land at current location
-    Q_INVOKABLE void guidedModeLand(void);
+    Q_INVOKABLE void guidedModeLand();
 
     /// Command vehicle to takeoff from current location
     Q_INVOKABLE void guidedModeTakeoff(double altitudeRelative);
 
     /// @return The minimum takeoff altitude (relative) for guided takeoff.
-    Q_INVOKABLE double minimumTakeoffAltitude(void);
+    Q_INVOKABLE double minimumTakeoffAltitudeMeters();
 
-    /// Command vehicle to move to specified location (altitude is included and relative)
-    Q_INVOKABLE void guidedModeGotoLocation(const QGeoCoordinate& gotoCoord);
+    /// @return Maximum horizontal speed multirotor.
+    Q_INVOKABLE double maximumHorizontalSpeedMultirotorMetersSecond();
+
+    /// @return Maximum equivalent airspeed.
+    Q_INVOKABLE double maximumEquivalentAirspeed();
+
+    /// @return Minimum equivalent airspeed.
+    Q_INVOKABLE double minimumEquivalentAirspeed();
+
+    /// Command vehicle to move to specified location (altitude is ignored)
+    /// @return true: goto command accepted, false: goto failed
+    Q_INVOKABLE bool guidedModeGotoLocation(const QGeoCoordinate& gotoCoord, double forwardFlightLoiterRadius = 0.0f);
 
     /// Command vehicle to change altitude
     ///     @param altitudeChange If > 0, go up by amount specified, if < 0, go down by amount specified
-    Q_INVOKABLE void guidedModeChangeAltitude(double altitudeChange);
+    ///     @param pauseVehicle true: pause vehicle prior to altitude change
+    Q_INVOKABLE void guidedModeChangeAltitude(double altitudeChange, bool pauseVehicle);
+
+    /// Command vehicle to change yaw
+    ///     @param coordinate to rotate towards
+    Q_INVOKABLE void guidedModeChangeHeading(const QGeoCoordinate &headingCoord);
+
+    /// Command vehicle to change groundspeed
+    ///     @param groundspeed Target horizontal groundspeed
+    Q_INVOKABLE void guidedModeChangeGroundSpeedMetersSecond(double groundspeed);
+    /// Command vehicle to change equivalent airspeed
+    ///     @param airspeed Target equivalent airspeed
+    Q_INVOKABLE void guidedModeChangeEquivalentAirspeedMetersSecond(double airspeed);
 
     /// Command vehicle to orbit given center point
-    ///     @param centerCoord Orit around this point
+    ///     @param centerCoord Orbit around this point
     ///     @param radius Distance from vehicle to centerCoord
     ///     @param amslAltitude Desired vehicle altitude
     Q_INVOKABLE void guidedModeOrbit(const QGeoCoordinate& centerCoord, double radius, double amslAltitude);
 
+    /// Command vehicle to set a Region Of Interest at the specified location.
+    ///     @param centerCoord ROI location (altitude within the coordinate is ignored)
+    ///     @param relativeAltitudeMeters ROI altitude in meters above home
+    /// @return true: ROI command sent, false: unable to send
+    Q_INVOKABLE bool guidedModeROI(const QGeoCoordinate &centerCoord, double relativeAltitudeMeters);
+    Q_INVOKABLE void stopGuidedModeROI();
+
     /// Command vehicle to pause at current location. If vehicle supports guide mode, vehicle will be left
     /// in guided mode after pause.
-    Q_INVOKABLE void pauseVehicle(void);
+    Q_INVOKABLE void pauseVehicle();
 
     /// Command vehicle to kill all motors no matter what state
-    Q_INVOKABLE void emergencyStop(void);
+    Q_INVOKABLE void emergencyStop();
 
     /// Command vehicle to abort landing
     Q_INVOKABLE void abortLanding(double climbOutAltitude);
 
-    Q_INVOKABLE void startMission(void);
+    /// Command vichecle to deploy landing gear
+    Q_INVOKABLE void landingGearDeploy();
+
+    /// Command vichecle to retract landing gear
+    Q_INVOKABLE void landingGearRetract();
+
+    Q_INVOKABLE void startTakeoff();
+
+    Q_INVOKABLE void startMission();
 
     /// Alter the current mission item on the vehicle
     Q_INVOKABLE void setCurrentMissionSequence(int seq);
@@ -750,136 +360,138 @@ public:
     /// Reboot vehicle
     Q_INVOKABLE void rebootVehicle();
 
-    /// Clear Messages
-    Q_INVOKABLE void clearMessages();
+    /// Latches rebootRequired until the vehicle reboots
+    void setRebootRequired();
 
-    Q_INVOKABLE void triggerCamera(void);
+    void setNewStableFirmwareVersion(const QString& version);
+
+    /// Hides the update indicator until a newer stable firmware is released
+    Q_INVOKABLE void acknowledgeNewStableFirmwareVersion();
+
     Q_INVOKABLE void sendPlan(QString planFile);
+    Q_INVOKABLE void setEstimatorOrigin(const QGeoCoordinate& centerCoord);
+
+    /// Fallback for setEstimatorOrigin which sends the deprecated SET_GPS_GLOBAL_ORIGIN message.
+    void setEstimatorOrigin_SET_GPS_GLOBAL_ORIGIN(const QGeoCoordinate& centerCoord);
 
     /// Used to check if running current version is equal or higher than the one being compared.
     //  returns 1 if current > compare, 0 if current == compare, -1 if current < compare
-    Q_INVOKABLE int versionCompare(QString& compare);
-    Q_INVOKABLE int versionCompare(int major, int minor, int patch);
+    Q_INVOKABLE int versionCompare(const QString& compare) const;
+    Q_INVOKABLE int versionCompare(int major, int minor, int patch) const;
 
     /// Test motor
     ///     @param motor Motor number, 1-based
     ///     @param percent 0-no power, 100-full power
-    Q_INVOKABLE void motorTest(int motor, int percent);
+    ///     @param timeoutSec Disabled motor after this amount of time
+    Q_INVOKABLE void motorTest(int motor, int percent, int timeoutSecs, bool showError);
 
-    Q_INVOKABLE void setPIDTuningTelemetryMode(bool pidTuning);
+    enum PIDTuningTelemetryMode {
+        ModeDisabled,
+        ModeRateAndAttitude,
+        ModeVelocityAndPosition,
+        ModeAltitudeAndAirspeed,
+    };
+    Q_ENUM(PIDTuningTelemetryMode)
 
-    Q_INVOKABLE void gimbalControlValue (double pitch, double yaw);
-    Q_INVOKABLE void gimbalPitchStep    (int direction);
-    Q_INVOKABLE void gimbalYawStep      (int direction);
-    Q_INVOKABLE void centerGimbal       ();
+    Q_INVOKABLE void setPIDTuningTelemetryMode(PIDTuningTelemetryMode mode);
 
-#if !defined(NO_ARDUPILOT_DIALECT)
-    Q_INVOKABLE void flashBootloader(void);
-#endif
+    Q_INVOKABLE void forceArm           ();
 
-    bool    guidedModeSupported     (void) const;
-    bool    pauseVehicleSupported   (void) const;
-    bool    orbitModeSupported      (void) const;
-    bool    takeoffVehicleSupported (void) const;
-    QString gotoFlightMode          (void) const;
+    /// Sends PARAM_MAP_RC message to vehicle
+    Q_INVOKABLE void sendParamMapRC(const QString& paramName, double scale, double centerValue, int tuningID, double minValue, double maxValue);
+
+    /// Clears all PARAM_MAP_RC settings from vehicle
+    Q_INVOKABLE void clearAllParamMapRC(void);
+
+    /// Removes the vehicle from the system
+    Q_INVOKABLE void closeVehicle();
+
+    /// Trigger camera using MAV_CMD_DO_DIGICAM_CONTROL command
+    Q_INVOKABLE void triggerSimpleCamera(void);
+
+    /// Set home from flight map coordinate
+    Q_INVOKABLE void doSetHome(const QGeoCoordinate& coord);
+
+    Q_INVOKABLE QVariant expandedToolbarIndicatorSource(const QString& indicatorName);
+
+    bool    isInitialConnectComplete() const;
+    QString gotoFlightMode          () const;
+
+    VehicleSupports* supports() { return _vehicleSupports; }
+    bool    hasGripper              () const;
+    bool haveMRSpeedLimits() const { return _multirotor_speed_limits_available; }
+    bool haveFWSpeedLimits() const { return _fixed_wing_airspeed_limits_available; }
 
     // Property accessors
 
-    QGeoCoordinate coordinate(void) { return _coordinate; }
+    QGeoCoordinate coordinate() { return _coordinate; }
+    QGeoCoordinate armedPosition    () { return _armedPosition; }
 
-    typedef enum {
-        JoystickModeRC,         ///< Joystick emulates an RC Transmitter
-        JoystickModeAttitude,
-        JoystickModePosition,
-        JoystickModeForce,
-        JoystickModeVelocity,
-        JoystickModeMax
-    } JoystickMode_t;
+    qreal getInitialGCSPressure() const { return _initialGCSPressure; }
+    qreal getInitialGCSTemperature() const { return _initialGCSTemperature; }
+    void setInitialGCSPressure(qreal pressure) { _initialGCSPressure = pressure; }
+    void setInitialGCSTemperature(qreal temperature) { _initialGCSTemperature = temperature; }
 
-    int joystickMode(void);
-    void setJoystickMode(int mode);
+    void updateFlightDistance(double distance);
 
-    /// List of joystick mode names
-    QStringList joystickModes(void);
-
-    bool joystickEnabled(void);
-    void setJoystickEnabled(bool enabled);
-
-    // Is vehicle active with respect to current active vehicle in QGC
-    bool active(void);
-    void setActive(bool active);
+    void sendJoystickDataThreadSafe (float roll, float pitch, float yaw, float thrust, quint16 buttons, quint16 buttons2, float pitchExtension, float rollExtension, float aux1, float aux2, float aux3, float aux4, float aux5, float aux6);
+    /// Sends RC_CHANNELS_OVERRIDE for joystick aux axes mapped to RC channels 5–10 only.
+    static constexpr int kAuxRcOverrideChannelCount = 6; ///< Number of RC channels overridden (channels 5–10)
+    void sendJoystickAuxRcOverrideThreadSafe(const std::array<uint16_t, kAuxRcOverrideChannelCount> &channelValues, const std::array<bool, kAuxRcOverrideChannelCount> &channelEnabled, bool useRcOverride);
 
     // Property accesors
-    int id(void) { return _id; }
-    MAV_AUTOPILOT firmwareType(void) const { return _firmwareType; }
-    MAV_TYPE vehicleType(void) const { return _vehicleType; }
-    Q_INVOKABLE QString vehicleTypeName(void) const;
-
-    /// Returns the highest quality link available to the Vehicle. If you need to hold a reference to this link use
-    /// LinkManager::sharedLinkInterfaceForGet to get QSharedPointer for link.
-    LinkInterface* priorityLink(void) { return _priorityLink.data(); }
+    int id() const{ return _systemID; }
+    int compId() const{ return _compID; }
+    MAV_AUTOPILOT firmwareType() const { return _firmwareType; }
+    MAV_TYPE vehicleType() const { return _vehicleType; }
+    QGCMAVLink::VehicleClass_t vehicleClass(void) const { return QGCMAVLink::vehicleClass(_vehicleType); }
+    Q_INVOKABLE QString vehicleClassInternalName() const;
 
     /// Sends a message to the specified link
     /// @return true: message sent, false: Link no longer connected
-    bool sendMessageOnLink(LinkInterface* link, mavlink_message_t message);
+    bool sendMessageOnLinkThreadSafe(LinkInterface* link, mavlink_message_t message);
 
     /// Sends the specified messages multiple times to the vehicle in order to attempt to
     /// guarantee that it makes it to the vehicle.
     void sendMessageMultiple(mavlink_message_t message);
 
-    /// Provides access to uas from vehicle. Temporary workaround until UAS is fully phased out.
-    UAS* uas(void) { return _uas; }
-
-    /// Provides access to uas from vehicle. Temporary workaround until AutoPilotPlugin is fully phased out.
-    AutoPilotPlugin* autopilotPlugin(void) { return _autopilotPlugin; }
+    /// Provides access to AutoPilotPlugin for this vehicle.
+    AutoPilotPlugin* autopilotPlugin() { return _autopilotPlugin; }
 
     /// Provides access to the Firmware Plugin for this Vehicle
-    FirmwarePlugin* firmwarePlugin(void) { return _firmwarePlugin; }
+    FirmwarePlugin* firmwarePlugin() { return _firmwarePlugin; }
 
-    MissionManager*     missionManager(void)    { return _missionManager; }
-    GeoFenceManager*    geoFenceManager(void)   { return _geoFenceManager; }
-    RallyPointManager*  rallyPointManager(void) { return _rallyPointManager; }
 
-    QGeoCoordinate homePosition(void);
+    QGeoCoordinate homePosition();
 
-    bool armed      () { return _armed; }
-    void setArmed   (bool armed);
+    bool armed              () const{ return _armed; }
+    void setArmed           (bool armed, bool showError);
+    void setArmedShowError  (bool armed) { setArmed(armed, true); }
 
-    bool flightModeSetAvailable(void);
-    QStringList flightModes(void);
-    QString flightMode(void) const;
-    void setFlightMode(const QString& flightMode);
+    bool flightModeSetAvailable             ();
+    QStringList flightModes                 ();
+    QString flightMode                      () const;
+    void setFlightMode                      (const QString& flightMode);
 
-    QString priorityLinkName(void) const;
-    QVariantList links(void) const;
-    void setPriorityLinkByName(const QString& priorityLinkName);
+    bool airship() const;
 
-    bool hilMode(void);
-    void setHilMode(bool hilMode);
+    void pairRX(int rxType, int rxSubType);
 
-    bool fixedWing(void) const;
-    bool multiRotor(void) const;
-    bool vtol(void) const;
-    bool rover(void) const;
-    bool sub(void) const;
+    bool fixedWing() const;
+    bool multiRotor() const;
+    bool vtol() const;
+    bool rover() const;
+    bool sub() const;
+    bool spacecraft() const;
 
-    bool supportsThrottleModeCenterZero (void) const;
-    bool supportsNegativeThrust         (void);
-    bool supportsRadio                  (void) const;
-    bool supportsJSButton               (void) const;
-    bool supportsMotorInterference      (void) const;
-    bool supportsTerrainFrame           (void) const;
+
 
     void setGuidedMode(bool guidedMode);
 
-    QString prearmError(void) const { return _prearmError; }
+    QString prearmError() const { return _prearmError; }
     void setPrearmError(const QString& prearmError);
 
-    QmlObjectListModel* trajectoryPoints(void) { return &_mapTrajectoryList; }
-    QmlObjectListModel* cameraTriggerPoints(void) { return &_cameraTriggerPoints; }
-    QmlObjectListModel* adsbVehicles(void) { return &_adsbVehicles; }
-
-    int  flowImageIndex() { return _flowImageIndex; }
+    QmlObjectListModel* cameraTriggerPoints ();
 
     //-- Mavlink Logging
     void startMavlinkLog();
@@ -891,554 +503,515 @@ public:
     ///     @param sendMultiple Send multiple time to guarantee Vehicle reception
     void requestDataStream(MAV_DATA_STREAM stream, uint16_t rate, bool sendMultiple = true);
 
-    typedef enum {
-        MessageNone,
-        MessageNormal,
-        MessageWarning,
-        MessageError
-    } MessageType_t;
+    // The follow method are used to turn on/off the tracking of settings updates for firmware/vehicle type on offline vehicles.
+    void trackFirmwareVehicleTypeChanges(void);
+    void stopTrackingFirmwareVehicleTypeChanges(void);
 
-    bool            messageTypeNone         () { return _currentMessageType == MessageNone; }
-    bool            messageTypeNormal       () { return _currentMessageType == MessageNormal; }
-    bool            messageTypeWarning      () { return _currentMessageType == MessageWarning; }
-    bool            messageTypeError        () { return _currentMessageType == MessageError; }
-    int             newMessageCount         () { return _currentMessageCount; }
-    int             messageCount            () { return _messageCount; }
-    QString         formatedMessages        ();
-    QString         formatedMessage         () { return _formatedMessage; }
-    QString         latestError             () { return _latestError; }
-    float           latitude                () { return static_cast<float>(_coordinate.latitude()); }
-    float           longitude               () { return static_cast<float>(_coordinate.longitude()); }
-    bool            mavPresent              () { return _mav != nullptr; }
-    int             rcRSSI                  () { return _rcRSSI; }
-    bool            px4Firmware             () const { return _firmwareType == MAV_AUTOPILOT_PX4; }
-    bool            apmFirmware             () const { return _firmwareType == MAV_AUTOPILOT_ARDUPILOTMEGA; }
-    bool            genericFirmware         () const { return !px4Firmware() && !apmFirmware(); }
-    bool            connectionLost          () const { return _connectionLost; }
-    bool            connectionLostEnabled   () const { return _connectionLostEnabled; }
-    uint            messagesReceived        () { return _messagesReceived; }
-    uint            messagesSent            () { return _messagesSent; }
-    uint            messagesLost            () { return _messagesLost; }
-    bool            flying                  () const { return _flying; }
-    bool            landing                 () const { return _landing; }
-    bool            guidedMode              () const;
-    bool            vtolInFwdFlight         () const { return _vtolInFwdFlight; }
-    uint8_t         baseMode                () const { return _base_mode; }
-    uint32_t        customMode              () const { return _custom_mode; }
-    bool            isOfflineEditingVehicle () const { return _offlineEditingVehicle; }
-    QString         brandImageIndoor        () const;
-    QString         brandImageOutdoor       () const;
-    QStringList     unhealthySensors        () const;
-    int             sensorsPresentBits      () const { return static_cast<int>(_onboardControlSensorsPresent); }
-    int             sensorsEnabledBits      () const { return static_cast<int>(_onboardControlSensorsEnabled); }
-    int             sensorsHealthBits       () const { return static_cast<int>(_onboardControlSensorsHealth); }
-    int             sensorsUnhealthyBits    () const { return static_cast<int>(_onboardControlSensorsUnhealthy); }
-    QString         missionFlightMode       () const;
-    QString         pauseFlightMode         () const;
-    QString         rtlFlightMode           () const;
-    QString         smartRTLFlightMode      () const;
-    bool            supportsSmartRTL        () const;
-    QString         landFlightMode          () const;
-    QString         takeControlFlightMode   () const;
-    double          defaultCruiseSpeed      () const { return _defaultCruiseSpeed; }
-    double          defaultHoverSpeed       () const { return _defaultHoverSpeed; }
-    QString         firmwareTypeString      () const;
-    QString         vehicleTypeString       () const;
-    int             telemetryRRSSI          () { return _telemetryRRSSI; }
-    int             telemetryLRSSI          () { return _telemetryLRSSI; }
-    unsigned int    telemetryRXErrors       () { return _telemetryRXErrors; }
-    unsigned int    telemetryFixed          () { return _telemetryFixed; }
-    unsigned int    telemetryTXBuffer       () { return _telemetryTXBuffer; }
-    int             telemetryLNoise         () { return _telemetryLNoise; }
-    int             telemetryRNoise         () { return _telemetryRNoise; }
-    bool            autoDisarm              ();
-    bool            highLatencyLink         () const { return _highLatencyLink; }
-    bool            orbitActive             () const { return _orbitActive; }
-    QGCMapCircle*   orbitMapCircle          () { return &_orbitMapCircle; }
+    float           latitude                    () { return static_cast<float>(_coordinate.latitude()); }
+    float           longitude                   () { return static_cast<float>(_coordinate.longitude()); }
+    bool            px4Firmware                 () const { return _firmwareType == MAV_AUTOPILOT_PX4; }
+    bool            apmFirmware                 () const { return _firmwareType == MAV_AUTOPILOT_ARDUPILOTMEGA; }
+    bool            genericFirmware             () const { return !px4Firmware() && !apmFirmware(); }
+    uint            messagesReceived            () const{ return _messagesReceived; }
+    uint            messagesSent                () const{ return _messagesSent; }
+    uint            messagesLost                () const{ return _messagesLost; }
 
-    /// Get the maximum MAVLink protocol version supported
-    /// @return the maximum version
-    unsigned        maxProtoVersion         () const { return _maxProtoVersion; }
+    bool underway() const { return _underway; }
 
-    Fact* roll              (void) { return &_rollFact; }
-    Fact* pitch             (void) { return &_pitchFact; }
-    Fact* heading           (void) { return &_headingFact; }
-    Fact* rollRate          (void) { return &_rollRateFact; }
-    Fact* pitchRate         (void) { return &_pitchRateFact; }
-    Fact* yawRate           (void) { return &_yawRateFact; }
-    Fact* airSpeed          (void) { return &_airSpeedFact; }
-    Fact* groundSpeed       (void) { return &_groundSpeedFact; }
-    Fact* climbRate         (void) { return &_climbRateFact; }
-    Fact* altitudeRelative  (void) { return &_altitudeRelativeFact; }
-    Fact* altitudeAMSL      (void) { return &_altitudeAMSLFact; }
-    Fact* flightDistance    (void) { return &_flightDistanceFact; }
-    Fact* distanceToHome    (void) { return &_distanceToHomeFact; }
-    Fact* headingToHome     (void) { return &_headingToHomeFact; }
-    Fact* distanceToGCS     (void) { return &_distanceToGCSFact; }
-    Fact* hobbs             (void) { return &_hobbsFact; }
-    Fact* throttlePct       (void) { return &_throttlePctFact; }
+    bool airborne() const { return _airborne; }
 
-    FactGroup* gpsFactGroup             (void) { return &_gpsFactGroup; }
-    FactGroup* battery1FactGroup        (void) { return &_battery1FactGroup; }
-    FactGroup* battery2FactGroup        (void) { return &_battery2FactGroup; }
-    FactGroup* windFactGroup            (void) { return &_windFactGroup; }
-    FactGroup* vibrationFactGroup       (void) { return &_vibrationFactGroup; }
-    FactGroup* temperatureFactGroup     (void) { return &_temperatureFactGroup; }
-    FactGroup* clockFactGroup           (void) { return &_clockFactGroup; }
-    FactGroup* setpointFactGroup        (void) { return &_setpointFactGroup; }
-    FactGroup* distanceSensorFactGroup  (void) { return &_distanceSensorFactGroup; }
-    FactGroup* estimatorStatusFactGroup (void) { return &_estimatorStatusFactGroup; }
+    bool            landing                     () const { return _landing; }
+    bool            guidedMode                  () const;
+    bool            inFwdFlight                 () const;
+    bool            vtolInFwdFlight             () const { return _vtolInFwdFlight; }
+    uint8_t         baseMode                    () const { return _base_mode; }
+    uint32_t        customMode                  () const { return _custom_mode; }
+    /// Custom mode used for health/arming-check mode-group lookups: prefers the
+    /// user-intention mode reported via CURRENT_MODE, falling back to HEARTBEAT.
+    uint32_t        effectiveCustomMode         () const { return _has_custom_mode_user_intention ? _custom_mode_user_intention : _custom_mode; }
+    bool            isOfflineEditingVehicle     () const { return _offlineEditingVehicle; }
+    int             sensorsPresentBits          () const { return static_cast<int>(_onboardControlSensorsPresent); }
+    int             sensorsEnabledBits          () const { return static_cast<int>(_onboardControlSensorsEnabled); }
+    int             sensorsHealthBits           () const { return static_cast<int>(_onboardControlSensorsHealth); }
+    int             sensorsUnhealthyBits        () const { return static_cast<int>(_onboardControlSensorsUnhealthy); }
+    QString         missionFlightMode           () const;
+    QString         pauseFlightMode             () const;
+    QString         rtlFlightMode               () const;
+    QString         smartRTLFlightMode          () const;
+    QString         landFlightMode              () const;
+    QString         takeControlFlightMode       () const;
+    QString         followFlightMode            () const;
+    QString         motorDetectionFlightMode    () const;
+    QString         stabilizedFlightMode        () const;
+    double          defaultCruiseSpeed          () const { return _defaultCruiseSpeed; }
+    double          defaultHoverSpeed           () const { return _defaultHoverSpeed; }
+    QString         firmwareTypeString          () const;
+    QString         vehicleTypeString           () const;
+    bool            autoDisarm                  ();
+    bool            orbitActive                 () const { return _orbitActive; }
+    QGCMapCircle*   orbitMapCircle              () { return _orbitMapCircle.get(); }
+    bool            readyToFlyAvailable         () const{ return _readyToFlyAvailable; }
+    bool            readyToFly                  () const{ return _readyToFly; }
+    bool            allSensorsHealthy           () const{ return _allSensorsHealthy; }
+    QObject*        sysStatusSensorInfo         ();
+    bool            requiresGpsFix              () const { return static_cast<bool>(_onboardControlSensorsPresent & MAV_SYS_STATUS_SENSOR_GPS); }
+    bool            rebootRequired              () const { return _rebootRequired; }
+    QString         newStableFirmwareVersion    () const { return _newStableFirmwareVersion; }
+    bool            newStableFirmwareVersionAcknowledged() const { return _newStableFirmwareVersionAcknowledged; }
+    bool            hilMode                     () const { return _base_mode & MAV_MODE_FLAG_HIL_ENABLED; }
+    Actuators*      actuators                   () const { return _actuators; }
+    VehicleSigningController* signingController() { return _signingController; }
+    const VehicleSigningController* signingController() const { return _signingController; }
 
-    void setConnectionLostEnabled(bool connectionLostEnabled);
+    void startCalibration   (QGCMAVLink::CalibrationType calType);
+    void stopCalibration    (bool showError);
 
-    ParameterManager*       parameterManager() { return _parameterManager; }
-    ParameterManager*       parameterManager() const { return _parameterManager; }
-    VehicleObjectAvoidance* objectAvoidance()  { return _objectAvoidance; }
+    FactGroup* vehicleFactGroup() { return _vehicleFactGroup; }
 
-    static const int cMaxRcChannels = 18;
+    VehicleGPSFactGroup* gpsFactGroup();
+    VehicleGPSFactGroup* gps2FactGroup();
+    FactGroup* windFactGroup                ();
+    FactGroup* vibrationFactGroup           ();
+    FactGroup* temperatureFactGroup         ();
+    FactGroup* clockFactGroup               ();
+    FactGroup* setpointFactGroup            ();
+    FactGroup* distanceSensorFactGroup      ();
+    FactGroup* localPositionFactGroup       ();
+    FactGroup* localPositionSetpointFactGroup();
+    FactGroup* estimatorStatusFactGroup     ();
+    FactGroup* terrainFactGroup             ();
+    FactGroup* hygrometerFactGroup          ();
+    FactGroup* generatorFactGroup           ();
+    FactGroup* efiFactGroup                 ();
+    FactGroup* radioStatusFactGroup         ();
+    FactGroup* rpmFactGroup                 ();
 
-    bool containsLink(LinkInterface* link) { return _links.contains(link); }
+    QmlObjectListModel* batteries           ();
+    QmlObjectListModel* escs                ();
+
+    MissionManager*                 missionManager      () { return _missionManager; }
+    GeoFenceManager*                geoFenceManager     () { return _geoFenceManager; }
+    RallyPointManager*              rallyPointManager   () { return _rallyPointManager; }
+    ParameterManager*               parameterManager    () { return _parameterManager; }
+    ParameterManager*               parameterManager    () const { return _parameterManager; }
+    VehicleLinkManager*             vehicleLinkManager  () { return _vehicleLinkManager; }
+    FTPManager*                     ftpManager          () { return _ftpManager; }
+    ComponentInformationManager*    compInfoManager     () { return _componentInformationManager; }
+    VehicleObjectAvoidance*         objectAvoidance     () { return _objectAvoidance; }
+    Autotune*                       autotune            () const { return _autotune; }
+    RemoteIDManager*                remoteIDManager     () { return _remoteIDManager; }
+
+    static void showCommandAckError(const mavlink_command_ack_t& ack);
 
     /// Sends the specified MAV_CMD to the vehicle. If no Ack is received command will be retried. If a sendMavCommand is already in progress
     /// the command will be queued and sent when the previous command completes.
-    ///     @param component Component to send to
+    ///     @param compId Component to send to.
     ///     @param command MAV_CMD to send
     ///     @param showError true: Display error to user if command failed, false:  no error shown
     /// Signals: mavCommandResult on success or failure
-    void sendMavCommand(int component, MAV_CMD command, bool showError, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f, float param6 = 0.0f, float param7 = 0.0f);
-    void sendMavCommandInt(int component, MAV_CMD command, MAV_FRAME frame, bool showError, float param1, float param2, float param3, float param4, double param5, double param6, float param7);
+    void sendMavCommand(int compId, MAV_CMD command, bool showError, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f, float param6 = 0.0f, float param7 = 0.0f);
+    void sendMavCommandDelayed(int compId, MAV_CMD command, bool showError, int milliseconds, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f, float param6 = 0.0f, float param7 = 0.0f);
+    void sendMavCommandInt(int compId, MAV_CMD command, MAV_FRAME frame, bool showError, float param1, float param2, float param3, float param4, double param5, double param6, float param7);
+
+    ///
+    /// \brief isMavCommandPending
+    ///     Query whether the specified MAV_CMD is in queue to be sent or has
+    /// already been sent but whose reply has not yet been received and whose
+    /// timeout has not yet expired.
+    ///
+    ///     Or, said another way: if you call `sendMavCommand(compId, command, true, ...)`
+    /// will an error be shown because you (or another part of QGC) has already
+    /// sent that command?
+    ///
+    /// \param targetCompId
+    /// \param command
+    /// \return
+    ///
+    bool isMavCommandPending(int targetCompId, MAV_CMD command);
 
     /// Same as sendMavCommand but available from Qml.
-    Q_INVOKABLE void sendCommand(int component, int command, bool showError, double param1 = 0.0, double param2 = 0.0, double param3 = 0.0, double param4 = 0.0, double param5 = 0.0, double param6 = 0.0, double param7 = 0.0)
-    {
-        sendMavCommand(
-            component, static_cast<MAV_CMD>(command),
-            showError,
-            static_cast<float>(param1),
-            static_cast<float>(param2),
-            static_cast<float>(param3),
-            static_cast<float>(param4),
-            static_cast<float>(param5),
-            static_cast<float>(param6),
-            static_cast<float>(param7));
-    }
+    Q_INVOKABLE void sendCommand(int compId, int command, bool showError, double param1 = 0.0, double param2 = 0.0, double param3 = 0.0, double param4 = 0.0, double param5 = 0.0, double param6 = 0.0, double param7 = 0.0);
 
-    int firmwareMajorVersion(void) const { return _firmwareMajorVersion; }
-    int firmwareMinorVersion(void) const { return _firmwareMinorVersion; }
-    int firmwarePatchVersion(void) const { return _firmwarePatchVersion; }
-    int firmwareVersionType(void) const { return _firmwareVersionType; }
-    int firmwareCustomMajorVersion(void) const { return _firmwareCustomMajorVersion; }
-    int firmwareCustomMinorVersion(void) const { return _firmwareCustomMinorVersion; }
-    int firmwareCustomPatchVersion(void) const { return _firmwareCustomPatchVersion; }
-    QString firmwareVersionTypeString(void) const;
+    static QString mavCmdResultFailureCodeToString(MavCmdResultFailureCode_t failureCode);
+
+    // MavCmdProgressHandler, MavCmdResultHandler, MavCmdAckHandlerInfo_t are inherited from VehicleTypes.
+
+    /// Sends the command and calls the callback with the result
+    void sendMavCommandWithHandler(
+        const MavCmdAckHandlerInfo_t* ackHandlerInfo,   ///> nullptr to signale no handlers
+        int compId, MAV_CMD command,
+        float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f, float param6 = 0.0f, float param7 = 0.0f);
+
+    /// Sends the command and calls the callback with the result
+    ///     @param resultHandler    Callback for result, nullptr for no callback
+    ///     @param resultHandleData Opaque data passed through callback
+    void sendMavCommandIntWithHandler(
+        const MavCmdAckHandlerInfo_t* ackHandlerInfo,   ///> nullptr to signale no handlers
+        int compId, MAV_CMD command, MAV_FRAME frame,
+        float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, double param5 = 0.0f, double param6 = 0.0f, float param7 = 0.0f);
+
+    /// Sends the command and calls the fallback lambda function in
+    /// case the command is MAV_RESULT_UNSUPPORTED
+    void sendMavCommandWithLambdaFallback(
+        std::function<void()> lambda,
+        int compId, MAV_CMD command,
+        bool showError,
+        float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f, float param6 = 0.0f, float param7 = 0.0f);
+
+    /// Sends the command as a COMMAND_INT and calls the fallback lambda function in
+    /// case the command is MAV_RESULT_UNSUPPORTED
+    void sendMavCommandIntWithLambdaFallback(
+        std::function<void()> lambda,
+        int compId, MAV_CMD command, MAV_FRAME frame,
+        bool showError,
+        float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, double param5 = 0.0, double param6 = 0.0, float param7 = 0.0f);
+
+
+    static QString requestMessageResultHandlerFailureCodeToString(RequestMessageResultHandlerFailureCode_t failureCode);
+
+    // RequestMessageResultHandler is inherited from VehicleTypes.
+
+    /// Requests the vehicle to send the specified message. Will retry a number of times.
+    ///     @param resultHandler Callback for result
+    ///     @param resultHandlerData Opaque data passed back to resultHandler
+    void requestMessage(RequestMessageResultHandler resultHandler, void* resultHandlerData, int compId, int messageId, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f, float param4 = 0.0f, float param5 = 0.0f);
+
+    int firmwareMajorVersion() const { return _firmwareMajorVersion; }
+    int firmwareMinorVersion() const { return _firmwareMinorVersion; }
+    int firmwarePatchVersion() const { return _firmwarePatchVersion; }
+    int firmwareVersionType() const { return _firmwareVersionType; }
+    int firmwareCustomMajorVersion() const { return _firmwareCustomMajorVersion; }
+    int firmwareCustomMinorVersion() const { return _firmwareCustomMinorVersion; }
+    int firmwareCustomPatchVersion() const { return _firmwareCustomPatchVersion; }
+    int firmwareBoardVendorId() const { return _firmwareBoardVendorId; }
+    int firmwareBoardProductId() const { return _firmwareBoardProductId; }
+    QString firmwareVersionTypeString() const;
     void setFirmwareVersion(int majorVersion, int minorVersion, int patchVersion, FIRMWARE_VERSION_TYPE versionType = FIRMWARE_VERSION_TYPE_OFFICIAL);
     void setFirmwareCustomVersion(int majorVersion, int minorVersion, int patchVersion);
-    static const int versionNotSetValue = -1;
+    // versionNotSetValue inherited from VehicleTypes
 
-    QString gitHash(void) const { return _gitHash; }
-    quint64 vehicleUID(void) const { return _uid; }
+    QString gitHash() const { return _gitHash; }
+    quint64 vehicleUID() const { return _uid; }
     QString vehicleUIDStr();
 
-    bool soloFirmware(void) const { return _soloFirmware; }
+    bool soloFirmware() const { return _soloFirmware; }
     void setSoloFirmware(bool soloFirmware);
 
-    int defaultComponentId(void) { return _defaultComponentId; }
+    int defaultComponentId() const{ return _defaultComponentId; }
 
     /// Sets the default component id for an offline editing vehicle
     void setOfflineEditingDefaultComponentId(int defaultComponentId);
 
     /// @return -1 = Unknown, Number of motors on vehicle
-    int motorCount(void);
+    int motorCount();
 
     /// @return true: Motors are coaxial like an X8 config, false: Quadcopter for example
-    bool coaxialMotors(void);
+    bool coaxialMotors();
 
     /// @return true: X confiuration, false: Plus configuration
-    bool xConfigMotors(void);
+    bool xConfigMotors();
 
     /// @return Firmware plugin instance data associated with this Vehicle
-    QObject* firmwarePluginInstanceData(void) { return _firmwarePluginInstanceData; }
+    class FirmwarePluginInstanceData* firmwarePluginInstanceData() { return _firmwarePluginInstanceData; }
 
     /// Sets the firmware plugin instance data associated with this Vehicle. This object will be parented to the Vehicle
     /// and destroyed when the vehicle goes away.
-    void setFirmwarePluginInstanceData(QObject* firmwarePluginInstanceData);
+    void setFirmwarePluginInstanceData(FirmwarePluginInstanceData* firmwarePluginInstanceData);
 
     QString vehicleImageOpaque  () const;
     QString vehicleImageOutline () const;
-    QString vehicleImageCompass () const;
 
-    const QVariantList&         toolBarIndicators   ();
-    const QVariantList&         staticCameraList    (void) const;
+    const QVariantList&         toolIndicators();
 
-    bool capabilitiesKnown      (void) const { return _vehicleCapabilitiesKnown; }
-    uint64_t capabilityBits     (void) const { return _capabilityBits; }    // Change signalled by capabilityBitsChanged
+    bool capabilitiesKnown      () const { return _capabilityBitsKnown; }
+    uint64_t capabilityBits     () const { return _capabilityBits; }    // Change signalled by capabilityBitsChanged
 
-    QGCCameraManager*           dynamicCameras      () { return _cameras; }
     QString                     hobbsMeter          ();
-
-    /// @true: When flying a mission the vehicle is always facing towards the next waypoint
-    bool vehicleYawsToNextWaypointInMission(void) const;
 
     /// The vehicle is responsible for making the initial request for the Plan.
     /// @return: true: initial request is complete, false: initial request is still in progress;
-    bool initialPlanRequestComplete(void) const { return _initialPlanRequestComplete; }
+    bool initialPlanRequestComplete() const { return _initialPlanRequestComplete; }
 
-    void forceInitialPlanRequestComplete(void);
+    void forceInitialPlanRequestComplete();
 
-    void _setFlying(bool flying);
+    void _setUnderway(bool underway);
     void _setLanding(bool landing);
     void _setHomePosition(QGeoCoordinate& homeCoord);
-    void _setMaxProtoVersion (unsigned version);
 
     /// Vehicle is about to be deleted
     void prepareDelete();
 
-    quint64     mavlinkSentCount        () { return _mavlinkSentCount; }        /// Calculated total number of messages sent to us
-    quint64     mavlinkReceivedCount    () { return _mavlinkReceivedCount; }    /// Total number of sucessful messages received
-    quint64     mavlinkLossCount        () { return _mavlinkLossCount; }        /// Total number of lost messages
-    float       mavlinkLossPercent      () { return _mavlinkLossPercent; }      /// Running loss rate
+    /// Delete gimbal controller, handy for RequestMessageTest.cc, otherwise gimbal controller message requests will mess with this test
+    void deleteGimbalController();
 
-    qreal       gimbalRoll              () { return static_cast<qreal>(_curGimbalRoll);}
-    qreal       gimbalPitch             () { return static_cast<qreal>(_curGimbalPitch); }
-    qreal       gimbalYaw               () { return static_cast<qreal>(_curGinmbalYaw); }
-    bool        gimbalData              () { return _haveGimbalData; }
+    quint64     mavlinkSentCount        () const{ return _mavlinkSentCount; }        /// Calculated total number of messages sent to us
+    quint64     mavlinkReceivedCount    () const{ return _mavlinkReceivedCount; }    /// Total number of sucessful messages received
+    quint64     mavlinkLossCount        () const{ return _mavlinkLossCount; }        /// Total number of lost messages
+    float       mavlinkLossPercent      () const{ return _mavlinkLossPercent; }      /// Running loss rate
+
+    bool        isROIEnabled            () const{ return _isROIEnabled; }
+
+    /// Last commanded ROI altitude in meters above home. Used to preserve the altitude when the ROI is re-positioned.
+    double      roiRelativeAltitudeMeters() const{ return _roiRelativeAltitudeMeters; }
+
+    CheckList   checkListState          () { return _checkListState; }
+    void        setCheckListState       (CheckList cl)  { _checkListState = cl; emit checkListStateChanged(); }
+
+    double loadProgress                 () const { return _loadProgress; }
+
+    void setActuatorsMetadata(uint8_t compid, const QString& metadataJsonFileName, const QJsonDocument& metadataJson);
+
+    GimbalController* gimbalController  () { return _gimbalController; }
 
 public slots:
-    void setVtolInFwdFlight             (bool vtolInFwdFlight);
+    void setVtolInFwdFlight                 (bool vtolInFwdFlight);
+    void _offlineFirmwareTypeSettingChanged (QVariant varFirmwareType); // Should only be used by MissionControler to set firmware from Plan file
+    void _offlineVehicleTypeSettingChanged  (QVariant varVehicleType);  // Should only be used by MissionController to set vehicle type from Plan file
+    Q_INVOKABLE void sendGripperAction(GRIPPER_ACTIONS gripperOption);
 
 signals:
-    void allLinksInactive(Vehicle* vehicle);
-    void coordinateChanged(QGeoCoordinate coordinate);
-    void joystickModeChanged(int mode);
-    void joystickEnabledChanged(bool enabled);
-    void activeChanged(bool active);
-    void mavlinkMessageReceived(const mavlink_message_t& message);
-    void homePositionChanged(const QGeoCoordinate& homePosition);
-    void armedChanged(bool armed);
-    void flightModeChanged(const QString& flightMode);
-    void hilModeChanged(bool hilMode);
-    /** @brief HIL actuator controls (replaces HIL controls) */
-    void hilActuatorControlsChanged(quint64 time, quint64 flags, float ctl_0, float ctl_1, float ctl_2, float ctl_3, float ctl_4, float ctl_5, float ctl_6, float ctl_7, float ctl_8, float ctl_9, float ctl_10, float ctl_11, float ctl_12, float ctl_13, float ctl_14, float ctl_15, quint8 mode);
-    void connectionLostChanged(bool connectionLost);
-    void connectionLostEnabledChanged(bool connectionLostEnabled);
-    void autoDisconnectChanged(bool autoDisconnectChanged);
-    void flyingChanged(bool flying);
-    void landingChanged(bool landing);
-    void guidedModeChanged(bool guidedMode);
-    void vtolInFwdFlightChanged(bool vtolInFwdFlight);
-    void prearmErrorChanged(const QString& prearmError);
-    void soloFirmwareChanged(bool soloFirmware);
-    void unhealthySensorsChanged(void);
-    void defaultCruiseSpeedChanged(double cruiseSpeed);
-    void defaultHoverSpeedChanged(double hoverSpeed);
-    void firmwareTypeChanged(void);
-    void vehicleTypeChanged(void);
-    void dynamicCamerasChanged();
-    void hobbsMeterChanged();
-    void capabilitiesKnownChanged(bool capabilitiesKnown);
+    void coordinateChanged              (QGeoCoordinate coordinate);
+    void mavlinkMessageReceived         (const mavlink_message_t& message);
+    void homePositionChanged            (const QGeoCoordinate& homePosition);
+    void armedPositionChanged();
+    void armedChanged                   (bool armed);
+    void flightModeChanged              (const QString& flightMode);
+    void underwayChanged(bool underway);
+    void airborneChanged(bool airborne);
+    void landingChanged                 (bool landing);
+    void guidedModeChanged              (bool guidedMode);
+    void inFwdFlightChanged             ();
+    void vtolInFwdFlightChanged         (bool vtolInFwdFlight);
+    void prearmErrorChanged             (const QString& prearmError);
+    void soloFirmwareChanged            (bool soloFirmware);
+    void defaultCruiseSpeedChanged      (double cruiseSpeed);
+    void defaultHoverSpeedChanged       (double hoverSpeed);
+    void firmwareTypeChanged            ();
+    void vehicleTypeChanged             ();
+    void hobbsMeterChanged              ();
+    void capabilitiesKnownChanged       (bool capabilitiesKnown);
     void initialPlanRequestCompleteChanged(bool initialPlanRequestComplete);
-    void capabilityBitsChanged(uint64_t capabilityBits);
-    void toolBarIndicatorsChanged(void);
-    void highLatencyLinkChanged(bool highLatencyLink);
-    void priorityLinkNameChanged(const QString& priorityLinkName);
-    void linksChanged(void);
-    void linksPropertiesChanged(void);
-    void textMessageReceived(int uasid, int componentid, int severity, QString text);
+    void capabilityBitsChanged          (uint64_t capabilityBits);
+    void toolIndicatorsChanged          ();
+    void checkListStateChanged          ();
+    void longitudeChanged               ();
+    void currentConfigChanged           ();
+    void autoDisarmChanged              ();
+    void flightModesChanged             ();
+    void sensorsPresentBitsChanged      (int sensorsPresentBits);
+    void sensorsEnabledBitsChanged      (int sensorsEnabledBits);
+    void sensorsHealthBitsChanged       (int sensorsHealthBits);
+    void sensorsUnhealthyBitsChanged    (int sensorsUnhealthyBits);
+    void orbitActiveChanged             (bool orbitActive);
+    void readyToFlyAvailableChanged     (bool readyToFlyAvailable);
+    void readyToFlyChanged              (bool readyToFy);
+    void allSensorsHealthyChanged       (bool allSensorsHealthy);
+    void requiresGpsFixChanged          ();
+    void rebootRequiredChanged          ();
+    void newStableFirmwareVersionChanged();
+    void haveMRSpeedLimChanged          ();
+    void haveFWSpeedLimChanged          ();
+    void hasGripperChanged              ();
 
-    void messagesReceivedChanged    ();
-    void messagesSentChanged        ();
-    void messagesLostChanged        ();
+    void firmwareVersionChanged         ();
+    void firmwareCustomVersionChanged   ();
+    void gitHashChanged                 (QString hash);
+    void vehicleUIDChanged              ();
+    void loadProgressChanged            (float value);
 
-    /// Used internally to move sendMessage call to main thread
-    void _sendMessageOnLinkOnThread(LinkInterface* link, mavlink_message_t message);
+    /// Raw RC channel values coming from RC_CHANNELS message
+    ///     @param channelValues The current raw values for rc channels
+    void rcChannelsRawChanged(QVector<int> channelValues);
 
-    void messageTypeChanged         ();
-    void newMessageCountChanged     ();
-    void messageCountChanged        ();
-    void formatedMessagesChanged    ();
-    void formatedMessageChanged     ();
-    void latestErrorChanged         ();
-    void longitudeChanged           ();
-    void currentConfigChanged       ();
-    void flowImageIndexChanged      ();
-    void rcRSSIChanged              (int rcRSSI);
-    void telemetryRRSSIChanged      (int value);
-    void telemetryLRSSIChanged      (int value);
-    void telemetryRXErrorsChanged   (unsigned int value);
-    void telemetryFixedChanged      (unsigned int value);
-    void telemetryTXBufferChanged   (unsigned int value);
-    void telemetryLNoiseChanged     (int value);
-    void telemetryRNoiseChanged     (int value);
-    void autoDisarmChanged          (void);
-    void flightModesChanged         (void);
-    void sensorsPresentBitsChanged  (int sensorsPresentBits);
-    void sensorsEnabledBitsChanged  (int sensorsEnabledBits);
-    void sensorsHealthBitsChanged   (int sensorsHealthBits);
-    void sensorsUnhealthyBitsChanged(int sensorsUnhealthyBits);
-    void orbitActiveChanged         (bool orbitActive);
+    /// Filtered RC channel values coming from RC_CHANNELS message: clamped 1000:2000
+    ///     @param channelValues The clamped values for rc channels
+    void rcChannelsClampedChanged(QVector<int> channelValues);
 
-    void firmwareVersionChanged(void);
-    void firmwareCustomVersionChanged(void);
-    void gitHashChanged(QString hash);
-    void vehicleUIDChanged();
-
-    /// New RC channel values
-    ///     @param channelCount Number of available channels, cMaxRcChannels max
-    ///     @param pwmValues -1 signals channel not available
-    void rcChannelsChanged(int channelCount, int pwmValues[cMaxRcChannels]);
-
-    /// Remote control RSSI changed  (0% - 100%)
-    void remoteControlRSSIChanged(uint8_t rssi);
-
-    void mavlinkRawImu(mavlink_message_t message);
-    void mavlinkScaledImu1(mavlink_message_t message);
-    void mavlinkScaledImu2(mavlink_message_t message);
-    void mavlinkScaledImu3(mavlink_message_t message);
+    /// New SERVO output values coming from SERVO_OUTPUT_RAW message
+    ///     @param servoValues The current servo output values in microseconds (0-15 -> SERVO1..SERVO16). Invalid values are -1.
+    void servoOutputsChanged(QVector<int> servoValues);
 
     // Mavlink Log Download
-    void mavlinkLogData (Vehicle* vehicle, uint8_t target_system, uint8_t target_component, uint16_t sequence, uint8_t first_message, QByteArray data, bool acked);
+    void mavlinkLogData                 (Vehicle* vehicle, uint8_t target_system, uint8_t target_component, uint16_t sequence, uint8_t first_message, QByteArray data, bool acked);
 
     /// Signalled in response to usage of sendMavCommand
-    ///     @param vehicleId Vehicle which command was sent to
-    ///     @param component Component which command was sent to
-    ///     @param command MAV_CMD Command which was sent
-    ///     @param result MAV_RESULT returned in ack
-    ///     @param noResponseFromVehicle true: vehicle did not respond to command, false: vehicle responsed, MAV_RESULT in result
-    void mavCommandResult(int vehicleId, int component, int command, int result, bool noReponseFromVehicle);
+    ///     @param vehicleId        Vehicle which command was sent to
+    ///     @param targetComponent  Component which command was sent to
+    ///     @param command          Command which was sent
+    ///     @param ackResult        MAV_RESULT returned in ack
+    ///     @param failureCode      More detailed failure code Vehicle::MavCmdResultFailureCode_t
+    void mavCommandResult               (int vehicleId, int targetComponent, int command, int ackResult, int failureCode);
 
     // MAVlink Serial Data
-    void mavlinkSerialControl(uint8_t device, uint8_t flags, uint16_t timeout, uint32_t baudrate, QByteArray data);
+    void mavlinkSerialControl           (uint8_t device, uint8_t flags, uint16_t timeout, uint32_t baudrate, QByteArray data);
 
-    // MAVLink protocol version
-    void requestProtocolVersion     (unsigned version);
-    void mavlinkStatusChanged       ();
+    void mavlinkStatusChanged           ();
 
-    void gimbalRollChanged          ();
-    void gimbalPitchChanged         ();
-    void gimbalYawChanged           ();
-    void gimbalDataChanged          ();
+    void isROIEnabledChanged            ();
+    void roiRelativeAltitudeMetersChanged();
+    void roiCoordChanged                (const QGeoCoordinate& centerCoord);
+    void initialConnectComplete         ();
+
+    void sensorsParametersResetAck      (bool success);
+
+    void logEntry                       (uint32_t time_utc, uint32_t size, uint16_t id, uint16_t num_logs, uint16_t last_log_num);
+    void logData                        (uint32_t ofs, uint16_t id, uint8_t count, const uint8_t* data);
 
 private slots:
-    void _mavlinkMessageReceived(LinkInterface* link, mavlink_message_t message);
-    void _linkInactiveOrDeleted(LinkInterface* link);
-    void _sendMessageOnLink(LinkInterface* link, mavlink_message_t message);
-    void _sendMessageMultipleNext(void);
-    void _addNewMapTrajectoryPoint(void);
-    void _parametersReady(bool parametersReady);
-    void _remoteControlRSSIChanged(uint8_t rssi);
-    void _handleFlightModeChanged(const QString& flightMode);
-    void _announceArmedChanged(bool armed);
-    void _offlineFirmwareTypeSettingChanged(QVariant value);
-    void _offlineVehicleTypeSettingChanged(QVariant value);
-    void _offlineCruiseSpeedSettingChanged(QVariant value);
-    void _offlineHoverSpeedSettingChanged(QVariant value);
-    void _updateHighLatencyLink(bool sendCommand = true);
-
-    void _handleTextMessage                 (int newCount);
-    void _handletextMessageReceived         (UASMessage* message);
-    /** @brief A new camera image has arrived */
-    void _imageReady                        (UASInterface* uas);
-    void _prearmErrorTimeout(void);
-    void _missionLoadComplete(void);
-    void _geoFenceLoadComplete(void);
-    void _rallyPointLoadComplete(void);
-    void _sendMavCommandAgain(void);
-    void _clearTrajectoryPoints(void);
-    void _clearCameraTriggerPoints(void);
-    void _updateDistanceHeadingToHome(void);
-    void _updateDistanceToGCS(void);
-    void _updateHobbsMeter(void);
-    void _vehicleParamLoaded(bool ready);
-    void _sendQGCTimeToVehicle(void);
-    void _mavlinkMessageStatus(int uasId, uint64_t totalSent, uint64_t totalReceived, uint64_t totalLoss, float lossPercent);
-
-    void _trafficUpdate         (bool alert, QString traffic_id, QString vehicle_id, QGeoCoordinate location, float heading);
-    void _adsbTimerTimeout      ();
-    void _orbitTelemetryTimeout (void);
-    void _protocolVersionTimeOut(void);
+    void _mavlinkMessageReceived            (LinkInterface* link, mavlink_message_t message);
+    void _sendMessageMultipleNext           ();
+    void _parametersReady                   (bool parametersReady);
+    void _handleFlightModeChanged           (const QString& flightMode);
+    void _announceArmedChanged              (bool armed);
+    void _updateAirborne();
+    void _offlineCruiseSpeedSettingChanged  (QVariant value);
+    void _offlineHoverSpeedSettingChanged   (QVariant value);
+    void _prearmErrorTimeout                ();
+    void _firstMissionLoadComplete          ();
+    void _firstGeoFenceLoadComplete         ();
+    void _firstRallyPointLoadComplete       ();
+    void _clearCameraTriggerPoints          ();
+    void _updateDistanceHeadingHome         ();
+    void _updateMissionItemIndex            ();
+    void _updateHeadingToNextWP             ();
+    void _updateDistanceHeadingGCS          ();
+    void _updateHomepoint                   ();
+    void _updateHobbsMeter                  ();
+    void _vehicleParamLoaded                (bool ready);
+    void _sendQGCTimeToVehicle              ();
+    void _mavlinkMessageStatus              (int uasId, uint64_t totalSent, uint64_t totalReceived, uint64_t totalLoss, float lossPercent);
+    void _orbitTelemetryTimeout             ();
+    void _updateFlightTime                  ();
+    void _gotProgressUpdate                 (float progressValue);
 
 private:
-    bool _containsLink          (LinkInterface* link);
-    void _addLink               (LinkInterface* link);
-    void _joystickChanged       (Joystick* joystick);
-    void _loadSettings(void);
-    void _saveSettings(void);
-    void _startJoystick(bool start);
-    void _handlePing(LinkInterface* link, mavlink_message_t& message);
-    void _handleHomePosition(mavlink_message_t& message);
-    void _handleHeartbeat(mavlink_message_t& message);
-    void _handleRadioStatus(mavlink_message_t& message);
-    void _handleRCChannels(mavlink_message_t& message);
-    void _handleRCChannelsRaw(mavlink_message_t& message);
-    void _handleBatteryStatus(mavlink_message_t& message);
-    void _handleSysStatus(mavlink_message_t& message);
-    void _handleWindCov(mavlink_message_t& message);
-    void _handleVibration(mavlink_message_t& message);
-    void _handleExtendedSysState(mavlink_message_t& message);
-    void _handleCommandAck(mavlink_message_t& message);
-    void _handleCommandLong(mavlink_message_t& message);
-    void _handleAutopilotVersion(LinkInterface* link, mavlink_message_t& message);
-    void _handleProtocolVersion(LinkInterface* link, mavlink_message_t& message);
-    void _handleHilActuatorControls(mavlink_message_t& message);
-    void _handleGpsRawInt(mavlink_message_t& message);
-    void _handleGlobalPositionInt(mavlink_message_t& message);
-    void _handleAltitude(mavlink_message_t& message);
-    void _handleVfrHud(mavlink_message_t& message);
-    void _handleScaledPressure(mavlink_message_t& message);
-    void _handleScaledPressure2(mavlink_message_t& message);
-    void _handleScaledPressure3(mavlink_message_t& message);
-    void _handleHighLatency2(mavlink_message_t& message);
-    void _handleAttitudeWorker(double rollRadians, double pitchRadians, double yawRadians);
-    void _handleAttitude(mavlink_message_t& message);
-    void _handleAttitudeQuaternion(mavlink_message_t& message);
-    void _handleAttitudeTarget(mavlink_message_t& message);
-    void _handleDistanceSensor(mavlink_message_t& message);
-    void _handleEstimatorStatus(mavlink_message_t& message);
-    void _handleStatusText(mavlink_message_t& message, bool longVersion);
-    void _handleOrbitExecutionStatus(const mavlink_message_t& message);
-    void _handleMessageInterval(const mavlink_message_t& message);
-    void _handleGimbalOrientation(const mavlink_message_t& message);
-    void _handleObstacleDistance(const mavlink_message_t& message);
-    // ArduPilot dialect messages
-#if !defined(NO_ARDUPILOT_DIALECT)
-    void _handleCameraFeedback(const mavlink_message_t& message);
-    void _handleWind(mavlink_message_t& message);
-#endif
-    void _handleCameraImageCaptured(const mavlink_message_t& message);
-    void _handleADSBVehicle(const mavlink_message_t& message);
-    void _missionManagerError(int errorCode, const QString& errorMsg);
-    void _geoFenceManagerError(int errorCode, const QString& errorMsg);
-    void _rallyPointManagerError(int errorCode, const QString& errorMsg);
-    void _mapTrajectoryStart(void);
-    void _mapTrajectoryStop(void);
-    void _linkActiveChanged(LinkInterface* link, bool active, int vehicleID);
-    void _say(const QString& text);
-    QString _vehicleIdSpeech(void);
-    void _handleMavlinkLoggingData(mavlink_message_t& message);
-    void _handleMavlinkLoggingDataAcked(mavlink_message_t& message);
-    void _ackMavlinkLogData(uint16_t sequence);
-    void _sendNextQueuedMavCommand(void);
-    void _updatePriorityLink(bool updateActive, bool sendCommand);
-    void _commonInit(void);
-    void _startPlanRequest(void);
-    void _setupAutoDisarmSignalling(void);
-    void _setCapabilities(uint64_t capabilityBits);
-    void _updateArmed(bool armed);
-    bool _apmArmingNotRequired(void);
-    void _pidTuningAdjustRates(bool setRatesForTuning);
-    void _handleUnsupportedRequestAutopilotCapabilities(void);
-    void _handleUnsupportedRequestProtocolVersion(void);
+    void _activeVehicleChanged          (Vehicle* newActiveVehicle);
+    void _handlePing                    (LinkInterface* link, mavlink_message_t& message);
+    void _handleHomePosition            (mavlink_message_t& message);
+    void _handleHeartbeat               (mavlink_message_t& message);
+    void _handleCurrentMode             (mavlink_message_t& message);
+    void _handleRCChannels              (mavlink_message_t& message);
+    void _handleBatteryStatus           (mavlink_message_t& message);
+    void _handleSysStatus               (mavlink_message_t& message);
+    void _handleExtendedSysState        (mavlink_message_t& message);
+    void _handleCommandAck              (mavlink_message_t& message);
+    void _handleGpsRawInt               (mavlink_message_t& message);
+    void _handleGlobalPositionInt       (mavlink_message_t& message);
+    void _handleHighLatency             (mavlink_message_t& message);
+    void _handleHighLatency2            (mavlink_message_t& message);
+    void _handleOrbitExecutionStatus    (const mavlink_message_t& message);
+    void _handleGimbalOrientation       (const mavlink_message_t& message);
+    void _handleObstacleDistance        (const mavlink_message_t& message);
+    void _handleFenceStatus             (const mavlink_message_t& message);
 
-    int     _id;                    ///< Mavlink system id
+    // ArduPilot dialect messages
+    void _handleCameraFeedback          (const mavlink_message_t& message);
+    void _handleCameraImageCaptured     (const mavlink_message_t& message);
+    void _handleCommandLong             (const mavlink_message_t& message);
+    void _missionManagerError           (int errorCode, const QString& errorMsg);
+    void _geoFenceManagerError          (int errorCode, const QString& errorMsg);
+    void _rallyPointManagerError        (int errorCode, const QString& errorMsg);
+    void _say                           (const QString& text);
+    QString _vehicleIdSpeech            ();
+    void _handleMavlinkLoggingData      (mavlink_message_t& message);
+    void _handleMavlinkLoggingDataAcked (mavlink_message_t& message);
+    void _ackMavlinkLogData             (uint16_t sequence);
+    void _commonInit                    (LinkInterface* link);
+    void _setupAutoDisarmSignalling     ();
+    void _setCapabilities               (uint64_t capabilityBits);
+    QString _acknowledgedStableFirmwareSettingsKey() const;
+    bool _isNewStableFirmwareVersionAcknowledged() const;
+    void _updateArmed                   (bool armed);
+    bool _apmArmingNotRequired          ();
+    void _initializeCsv                 ();
+    void _writeCsvLine                  ();
+    void _flightTimerStart              ();
+    void _flightTimerStop               ();
+    void _setMessageInterval            (int messageId, int rate);
+    bool setFlightModeCustom            (const QString& flightMode, uint8_t* base_mode, uint32_t* custom_mode);
+    QString _formatMavCommand           (MAV_CMD command, float param1);
+
+    static void _rebootCommandResultHandler(void* resultHandlerData, int compId, const mavlink_command_ack_t& ack, MavCmdResultFailureCode_t failureCode);
+
+    // The following methods should only be called by unit tests
+    void _deleteGimbalController();
+    void _deleteCameraManager();
+
+    /// Called by VehicleLinkManager when all links are removed.
+    /// Stops command processing timers to prevent callbacks during vehicle destruction.
+    void _stopCommandProcessing();
+
+    int     _systemID;                    ///< Mavlink system id
     int     _defaultComponentId;
-    bool    _active;
-    bool    _offlineEditingVehicle; ///< This Vehicle is a "disconnected" vehicle for ui use while offline editing
+    bool    _offlineEditingVehicle = false; ///< true: This Vehicle is a "disconnected" vehicle for ui use while offline editing
 
     MAV_AUTOPILOT       _firmwareType;
     MAV_TYPE            _vehicleType;
-    FirmwarePlugin*     _firmwarePlugin;
-    QObject*            _firmwarePluginInstanceData;
-    AutoPilotPlugin*    _autopilotPlugin;
-    MAVLinkProtocol*    _mavlink;
-    bool                _soloFirmware;
-    QGCToolbox*         _toolbox;
-    SettingsManager*    _settingsManager;
+    FirmwarePlugin*     _firmwarePlugin = nullptr;
+    class FirmwarePluginInstanceData*            _firmwarePluginInstanceData = nullptr;
+    AutoPilotPlugin*    _autopilotPlugin = nullptr;
+    bool                _soloFirmware = false;
 
-    QList<LinkInterface*> _links;
+    QTimer              _csvLogTimer;
+    QFile               _csvLogFile;
 
-    JoystickMode_t  _joystickMode;
-    bool            _joystickEnabled;
-
-    UAS* _uas;
+    bool _isActiveVehicle = false;
 
     QGeoCoordinate  _coordinate;
     QGeoCoordinate  _homePosition;
+    QGeoCoordinate  _armedPosition;
 
-    UASInterface*   _mav;
-    int             _currentMessageCount;
-    int             _messageCount;
-    int             _currentErrorCount;
-    int             _currentWarningCount;
-    int             _currentNormalCount;
-    MessageType_t   _currentMessageType;
-    QString         _latestError;
-    int             _updateCount;
-    QString         _formatedMessage;
-    int             _rcRSSI;
-    double          _rcRSSIstore;
-    bool            _autoDisconnect;    ///< true: Automatically disconnect vehicle when last connection goes away or lost heartbeat
-    bool            _flying;
-    bool            _landing;
-    bool            _vtolInFwdFlight;
-    uint32_t        _onboardControlSensorsPresent;
-    uint32_t        _onboardControlSensorsEnabled;
-    uint32_t        _onboardControlSensorsHealth;
-    uint32_t        _onboardControlSensorsUnhealthy;
-    bool            _gpsRawIntMessageAvailable;
-    bool            _globalPositionIntMessageAvailable;
-    double          _defaultCruiseSpeed;
-    double          _defaultHoverSpeed;
-    int             _telemetryRRSSI;
-    int             _telemetryLRSSI;
-    uint32_t        _telemetryRXErrors;
-    uint32_t        _telemetryFixed;
-    uint32_t        _telemetryTXBuffer;
-    int             _telemetryLNoise;
-    int             _telemetryRNoise;
-    bool            _mavlinkProtocolRequestComplete;
-    unsigned        _maxProtoVersion;
-    bool            _vehicleCapabilitiesKnown;
-    uint64_t        _capabilityBits;
-    bool            _highLatencyLink;
-    bool            _receivingAttitudeQuaternion;
+    qreal           _initialGCSPressure = 0.;
+    qreal           _initialGCSTemperature = 0.;
 
-    QGCCameraManager* _cameras;
+    bool _underway = false;
+    bool _airborne = false;
+    bool            _landing = false;
+    bool            _vtolInFwdFlight = false;
+    uint32_t        _onboardControlSensorsPresent = 0;
+    uint32_t        _onboardControlSensorsEnabled = 0;
+    uint32_t        _onboardControlSensorsHealth = 0;
+    uint32_t        _onboardControlSensorsUnhealthy = 0;
+    bool            _gpsRawIntMessageAvailable              = false;
+    bool            _gps2RawMessageAvailable                = false;
+    bool            _globalPositionIntMessageAvailable      = false;
+    bool            _cameraImageCapturedMessageAvailable    = false;
+    double          _defaultCruiseSpeed = qQNaN();
+    double          _defaultHoverSpeed = qQNaN();
+    bool            _capabilityBitsKnown                    = false;
+    uint64_t        _capabilityBits                         = 0;
+    CheckList       _checkListState                         = CheckListNotSetup;
+    bool            _readyToFlyAvailable                    = false;
+    bool            _readyToFly                             = false;
+    bool            _allSensorsHealthy                      = true;
+    bool            _rebootRequired                         = false;
+    QString         _newStableFirmwareVersion;
+    bool            _newStableFirmwareVersionAcknowledged   = false;
+    VehicleSigningController* _signingController            = nullptr;
+    std::atomic<bool> _joystickAuxRcOverrideActive           = false;
 
-    typedef struct {
-        int         component;
-        bool        commandInt; // true: use COMMAND_INT, false: use COMMAND_LONG
-        MAV_CMD     command;
-        MAV_FRAME   frame;
-        double      rgParam[7];
-        bool        showError;
-    } MavCommandQueueEntry_t;
+    std::unique_ptr<SysStatusSensorInfo> _sysStatusSensorInfo;
 
-    QList<MavCommandQueueEntry_t>   _mavCommandQueue;
-    QTimer                          _mavCommandAckTimer;
-    int                             _mavCommandRetryCount;
-    static const int                _mavCommandMaxRetryCount = 3;
-    static const int                _mavCommandAckTimeoutMSecs = 3000;
-    static const int                _mavCommandAckTimeoutMSecsHighLatency = 120000;
 
     QString             _prearmError;
     QTimer              _prearmErrorTimer;
     static const int    _prearmErrorTimeoutMSecs = 35 * 1000;   ///< Take away prearm error after 35 seconds
 
-    // Lost connection handling
-    bool                _connectionLost;
-    bool                _connectionLostEnabled;
+    bool                _initialPlanRequestComplete = false;
 
-    bool                _initialPlanRequestComplete;
+    ParameterManager*               _parameterManager               = nullptr;
+    ComponentInformationManager*    _componentInformationManager    = nullptr;
+    VehicleObjectAvoidance*         _objectAvoidance                = nullptr;
+    Autotune*                       _autotune                       = nullptr;
+    GimbalController*               _gimbalController               = nullptr;
+    VehicleSupports*                _vehicleSupports                = nullptr;
 
-    MissionManager*     _missionManager;
-    bool                _missionManagerInitialRequestSent;
-
-    GeoFenceManager*    _geoFenceManager;
-    bool                _geoFenceManagerInitialRequestSent;
-
-    RallyPointManager*  _rallyPointManager;
-    bool                _rallyPointManagerInitialRequestSent;
-
-    ParameterManager*       _parameterManager   = nullptr;
-    VehicleObjectAvoidance* _objectAvoidance    = nullptr;
-
-#if defined(QGC_AIRMAP_ENABLED)
-    AirspaceVehicleManager* _airspaceVehicleManager;
-#endif
-
-    bool    _armed;         ///< true: vehicle is armed
-    uint8_t _base_mode;     ///< base_mode from HEARTBEAT
-    uint32_t _custom_mode;  ///< custom_mode from HEARTBEAT
+    bool    _armed = false;         ///< true: vehicle is armed
+    uint8_t _base_mode = 0;     ///< base_mode from HEARTBEAT
+    uint32_t _custom_mode = 0;  ///< custom_mode from HEARTBEAT
+    uint32_t _custom_mode_user_intention = 0;  ///< custom_mode_user_intention from CURRENT_MODE
+    bool _has_custom_mode_user_intention = false;
+    QString _lastAnnouncedFlightMode;
 
     /// Used to store a message being sent by sendMessageMultiple
     typedef struct {
@@ -1452,144 +1025,322 @@ private:
     static const int _sendMessageMultipleIntraMessageDelay = 500;
 
     QTimer  _sendMultipleTimer;
-    int     _nextSendMessageMultipleIndex;
+    int     _nextSendMessageMultipleIndex = 0;
 
-    QTime               _flightTimer;
-    QTimer              _mapTrajectoryTimer;
-    QmlObjectListModel  _mapTrajectoryList;
-    QGeoCoordinate      _mapTrajectoryLastCoordinate;
-    bool                _mapTrajectoryHaveFirstCoordinate;
-    static const int    _mapTrajectoryMsecsBetweenPoints = 1000;
+    QElapsedTimer                   _flightTimer;
+    QTimer                          _flightTimeUpdater;
+    TrajectoryPoints*               _trajectoryPoints = nullptr;
+    std::unique_ptr<QmlObjectListModel> _cameraTriggerPoints;
+    //QMap<QString, ADSBVehicle*>     _trafficVehicleMap;
 
-    QmlObjectListModel  _cameraTriggerPoints;
+    bool _allLinksRemovedSent = false; ///< true: allLinkRemoved signal already sent one time
 
-    QmlObjectListModel              _adsbVehicles;
-    QMap<uint32_t, ADSBVehicle*>    _adsbICAOMap;
-    QMap<QString, ADSBVehicle*>     _trafficVehicleMap;
-    QTimer                          _adsbTimer;
+    uint                _messagesReceived = 0;
+    uint                _messagesSent = 0;
+    uint                _messagesLost = 0;
+    uint8_t             _messageSeq = 0;
+    uint8_t             _compID = 0;
+    bool                _heardFrom = false;
 
-    // Toolbox references
-    FirmwarePluginManager*      _firmwarePluginManager;
-    JoystickManager*            _joystickManager;
+    bool                _isROIEnabled   = false;
+    double              _roiRelativeAltitudeMeters = 0;
+\
+    bool _checkLatestStableFWDone = false;
+    int _firmwareMajorVersion = versionNotSetValue;
+    int _firmwareMinorVersion = versionNotSetValue;
+    int _firmwarePatchVersion = versionNotSetValue;
+    int _firmwareCustomMajorVersion = versionNotSetValue;
+    int _firmwareCustomMinorVersion = versionNotSetValue;
+    int _firmwareCustomPatchVersion = versionNotSetValue;
+    FIRMWARE_VERSION_TYPE _firmwareVersionType = FIRMWARE_VERSION_TYPE_OFFICIAL;
 
-    int                         _flowImageIndex;
+    // Vendor and Product as reported from the first autopilot version message
+    // during the initial connect. They may be zero eg ArduPilot SITL reports 0
+    // by default.
+    uint16_t       _firmwareBoardVendorId = 0;
+    uint16_t       _firmwareBoardProductId = 0;
 
-    bool _allLinksInactiveSent; ///< true: allLinkInactive signal already sent one time
-
-    uint                _messagesReceived;
-    uint                _messagesSent;
-    uint                _messagesLost;
-    uint8_t             _messageSeq;
-    uint8_t             _compID;
-    bool                _heardFrom;
-
-    float               _curGimbalRoll  = 0.0f;
-    float               _curGimbalPitch = 0.0f;
-    float               _curGinmbalYaw  = 0.0f;
-    bool                _haveGimbalData = false;
-    Joystick*           _activeJoystick = nullptr;
-
-    int _firmwareMajorVersion;
-    int _firmwareMinorVersion;
-    int _firmwarePatchVersion;
-    int _firmwareCustomMajorVersion;
-    int _firmwareCustomMinorVersion;
-    int _firmwareCustomPatchVersion;
-    FIRMWARE_VERSION_TYPE _firmwareVersionType;
 
     QString _gitHash;
-    quint64 _uid;
-
-    int _lastAnnouncedLowBatteryPercent;
-
-    SharedLinkInterfacePointer _priorityLink;  // We always keep a reference to the priority link to manage shutdown ordering
-    bool _priorityLinkCommanded;
+    quint64 _uid = 0;
 
     uint64_t    _mavlinkSentCount       = 0;
     uint64_t    _mavlinkReceivedCount   = 0;
     uint64_t    _mavlinkLossCount       = 0;
     float       _mavlinkLossPercent     = 0.0f;
 
+    float       _loadProgress           = 0.0f;
+
     QMap<QString, QTime> _noisySpokenPrearmMap; ///< Used to prevent PreArm messages from being spoken too often
 
     // Orbit status values
-    bool            _orbitActive;
-    QGCMapCircle    _orbitMapCircle;
+    bool            _orbitActive = false;
+    std::unique_ptr<QGCMapCircle> _orbitMapCircle;
     QTimer          _orbitTelemetryTimer;
     static const int _orbitTelemetryTimeoutMsecs = 3000; // No telemetry for this amount and orbit will go inactive
 
-    // PID Tuning telemetry mode
-    bool            _pidTuningTelemetryMode;
-    bool            _pidTuningWaitingForRates;
-    QList<int>      _pidTuningMessages;
-    QMap<int, int>  _pidTuningMessageRatesUsecs;
+    std::unique_ptr<MAVLinkStreamConfig> _mavlinkStreamConfig;
+
+    MavCommandQueue*            _mavCmdQueue    = nullptr;
+    RequestMessageCoordinator*  _reqMsgCoord    = nullptr;
+
+public:
+    /// Test-only helper: forwards to MavCommandQueue::findEntryIndex.
+    int  _findMavCommandListEntryIndex(int targetCompId, MAV_CMD command);
+
+    QMap<uint8_t /* batteryId */, uint8_t /* MAV_BATTERY_CHARGE_STATE_OK */> _lowestBatteryChargeStateAnnouncedMap;
+
+    float _altitudeTuningOffset = qQNaN(); // altitude offset, so the plotted value is around 0
+
+    // these flags are used to determine if the speed change action from fly view should be shown
+    bool _multirotor_speed_limits_available = false;
+    bool _fixed_wing_airspeed_limits_available = false;
 
     // FactGroup facts
 
-    Fact _rollFact;
-    Fact _pitchFact;
-    Fact _headingFact;
-    Fact _rollRateFact;
-    Fact _pitchRateFact;
-    Fact _yawRateFact;
-    Fact _groundSpeedFact;
-    Fact _airSpeedFact;
-    Fact _climbRateFact;
-    Fact _altitudeRelativeFact;
-    Fact _altitudeAMSLFact;
-    Fact _flightDistanceFact;
-    Fact _flightTimeFact;
-    Fact _distanceToHomeFact;
-    Fact _headingToHomeFact;
-    Fact _distanceToGCSFact;
-    Fact _hobbsFact;
-    Fact _throttlePctFact;
+    const QString _vehicleFactGroupName =            QStringLiteral("vehicle");
+    const QString _gpsFactGroupName =                QStringLiteral("gps");
+    const QString _gps2FactGroupName =               QStringLiteral("gps2");
+    const QString _windFactGroupName =               QStringLiteral("wind");
+    const QString _vibrationFactGroupName =          QStringLiteral("vibration");
+    const QString _temperatureFactGroupName =        QStringLiteral("temperature");
+    const QString _clockFactGroupName =              QStringLiteral("clock");
+    const QString _setpointFactGroupName =           QStringLiteral("setpoint");
+    const QString _distanceSensorFactGroupName =     QStringLiteral("distanceSensor");
+    const QString _localPositionFactGroupName =      QStringLiteral("localPosition");
+    const QString _localPositionSetpointFactGroupName = QStringLiteral("localPositionSetpoint");
+    const QString _estimatorStatusFactGroupName =    QStringLiteral("estimatorStatus");
+    const QString _terrainFactGroupName =            QStringLiteral("terrain");
+    const QString _hygrometerFactGroupName =         QStringLiteral("hygrometer");
+    const QString _generatorFactGroupName =          QStringLiteral("generator");
+    const QString _efiFactGroupName =                QStringLiteral("efi");
+    const QString _rpmFactGroupName =                QStringLiteral("rpm");
+    const QString _radioStatusFactGroupName =        QStringLiteral("radioStatus");
 
-    VehicleGPSFactGroup             _gpsFactGroup;
-    VehicleBatteryFactGroup         _battery1FactGroup;
-    VehicleBatteryFactGroup         _battery2FactGroup;
-    VehicleWindFactGroup            _windFactGroup;
-    VehicleVibrationFactGroup       _vibrationFactGroup;
-    VehicleTemperatureFactGroup     _temperatureFactGroup;
-    VehicleClockFactGroup           _clockFactGroup;
-    VehicleSetpointFactGroup        _setpointFactGroup;
-    VehicleDistanceSensorFactGroup  _distanceSensorFactGroup;
-    VehicleEstimatorStatusFactGroup _estimatorStatusFactGroup;
+    VehicleFactGroup*               _vehicleFactGroup;
+    VehicleGPSFactGroup*                _gpsFactGroup               = nullptr;
+    VehicleGPSFactGroup* _gps2FactGroup = nullptr;
+    VehicleWindFactGroup*               _windFactGroup              = nullptr;
+    VehicleVibrationFactGroup*          _vibrationFactGroup         = nullptr;
+    VehicleTemperatureFactGroup*        _temperatureFactGroup       = nullptr;
+    VehicleClockFactGroup*              _clockFactGroup             = nullptr;
+    VehicleSetpointFactGroup*           _setpointFactGroup          = nullptr;
+    VehicleDistanceSensorFactGroup*     _distanceSensorFactGroup    = nullptr;
+    VehicleLocalPositionFactGroup*      _localPositionFactGroup     = nullptr;
+    VehicleLocalPositionSetpointFactGroup* _localPositionSetpointFactGroup = nullptr;
+    VehicleEstimatorStatusFactGroup*    _estimatorStatusFactGroup   = nullptr;
+    VehicleHygrometerFactGroup*         _hygrometerFactGroup        = nullptr;
+    VehicleGeneratorFactGroup*          _generatorFactGroup         = nullptr;
+    VehicleEFIFactGroup*                _efiFactGroup               = nullptr;
+    VehicleRPMFactGroup*                _rpmFactGroup               = nullptr;
+    TerrainFactGroup*                   _terrainFactGroup           = nullptr;
+    RadioStatusFactGroup*               _radioStatusFactGroup       = nullptr;
 
-    static const char* _rollFactName;
-    static const char* _pitchFactName;
-    static const char* _headingFactName;
-    static const char* _rollRateFactName;
-    static const char* _pitchRateFactName;
-    static const char* _yawRateFactName;
-    static const char* _groundSpeedFactName;
-    static const char* _airSpeedFactName;
-    static const char* _climbRateFactName;
-    static const char* _altitudeRelativeFactName;
-    static const char* _altitudeAMSLFactName;
-    static const char* _flightDistanceFactName;
-    static const char* _flightTimeFactName;
-    static const char* _distanceToHomeFactName;
-    static const char* _headingToHomeFactName;
-    static const char* _distanceToGCSFactName;
-    static const char* _hobbsFactName;
-    static const char* _throttlePctFactName;
+    // Live SERVO_OUTPUT_RAW values (microseconds). Indexed 0..15 -> SERVO1..SERVO16.
+    QVector<int>                       _servoOutputRawValues = QVector<int>(16, -1);
 
-    static const char* _gpsFactGroupName;
-    static const char* _battery1FactGroupName;
-    static const char* _battery2FactGroupName;
-    static const char* _windFactGroupName;
-    static const char* _vibrationFactGroupName;
-    static const char* _temperatureFactGroupName;
-    static const char* _clockFactGroupName;
-    static const char* _distanceSensorFactGroupName;
-    static const char* _estimatorStatusFactGroupName;
+    // Dynamic FactGroups
+    BatteryFactGroupListModel*          _batteryFactGroupListModel  = nullptr;
+    EscStatusFactGroupListModel*        _escStatusFactGroupListModel = nullptr;
 
-    static const int _vehicleUIUpdateRateMSecs = 100;
+    TerrainProtocolHandler* _terrainProtocolHandler = nullptr;
 
-    // Settings keys
-    static const char* _settingsGroup;
-    static const char* _joystickModeSettingsKey;
-    static const char* _joystickEnabledSettingsKey;
+    MissionManager*                 _missionManager             = nullptr;
+    GeoFenceManager*                _geoFenceManager            = nullptr;
+    RallyPointManager*              _rallyPointManager          = nullptr;
+    VehicleLinkManager*             _vehicleLinkManager         = nullptr;
+    FTPManager*                     _ftpManager                 = nullptr;
+    InitialConnectStateMachine*     _initialConnectStateMachine = nullptr;
+    Actuators*                      _actuators                  = nullptr;
+    RemoteIDManager*                _remoteIDManager            = nullptr;
+    StandardModes*                  _standardModes              = nullptr;
 
+    // All terrain query workflows (doSetHome, ROI, altAboveTerrain) live in the coordinator.
+    TerrainQueryCoordinator*    _terrainQueryCoordinator = nullptr;
+
+public:
+    int32_t getMessageRate(uint8_t compId, uint16_t msgId);
+    void setMessageRate(uint8_t compId, uint16_t msgId, int32_t rate);
+
+signals:
+    // Re-emitted from MessageIntervalManager so existing consumers keep working.
+    void mavlinkMsgIntervalsChanged(uint8_t compid, uint16_t msgId, int32_t rate);
+
+private:
+    MessageIntervalManager* _messageIntervalManager = nullptr;
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                         ardupilotmega Dialect                             */
+/*===========================================================================*/
+public:
+    Q_INVOKABLE void flashBootloader();
+
+    /// Command vehicle to Enable/Disable Motor Interlock
+    Q_INVOKABLE void motorInterlock(bool enable);
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                         CONTROL STATUS HANDLER                            */
+/*===========================================================================*/
+public:
+    Q_INVOKABLE void startTimerRevertAllowTakeover();
+    Q_INVOKABLE void requestOperatorControl(bool allowOverride, int requestTimeoutSecs = 0);
+
+private:
+    void _handleControlStatus(const mavlink_message_t& message);
+    void _handleCommandRequestOperatorControl(const mavlink_command_long_t commandLong);
+    static void _requestOperatorControlAckHandler(void* resultHandlerData, int compId, const mavlink_command_ack_t& ack, MavCmdResultFailureCode_t failureCode);
+
+    Q_PROPERTY(uint8_t gcsMain                               READ gcsMain                               NOTIFY gcsControlStatusChanged)
+    Q_PROPERTY(bool    gcsControlStatusFlags_SystemManager   READ gcsControlStatusFlags_SystemManager   NOTIFY gcsControlStatusChanged)
+    Q_PROPERTY(bool    gcsControlStatusFlags_TakeoverAllowed READ gcsControlStatusFlags_TakeoverAllowed NOTIFY gcsControlStatusChanged)
+    Q_PROPERTY(bool    firstControlStatusReceived            READ firstControlStatusReceived            NOTIFY gcsControlStatusChanged)
+    Q_PROPERTY(int     operatorControlTakeoverTimeoutMsecs   READ operatorControlTakeoverTimeoutMsecs   CONSTANT)
+    Q_PROPERTY(int     requestOperatorControlRemainingMsecs  READ requestOperatorControlRemainingMsecs  CONSTANT)
+    Q_PROPERTY(bool    sendControlRequestAllowed             READ sendControlRequestAllowed             NOTIFY sendControlRequestAllowedChanged)
+
+    uint8_t gcsMain() const { return _gcsMain; }
+    bool    gcsControlStatusFlags_SystemManager() const { return _gcsControlStatusFlags_SystemManager; }
+    bool    gcsControlStatusFlags_TakeoverAllowed() const { return _gcsControlStatusFlags_TakeoverAllowed; }
+    bool    firstControlStatusReceived() const { return _firstControlStatusReceived; }
+    int     operatorControlTakeoverTimeoutMsecs() const;
+    int     requestOperatorControlRemainingMsecs() const { return _timerRequestOperatorControl.remainingTime(); }
+    bool    sendControlRequestAllowed() const { return _sendControlRequestAllowed; }
+    void    requestOperatorControlStartTimer(int requestTimeoutMsecs);
+
+    uint8_t _gcsMain = 0;
+    uint8_t _gcsControlStatusFlags = 0;
+    bool    _gcsControlStatusFlags_SystemManager = 0;
+    bool    _gcsControlStatusFlags_TakeoverAllowed = 0;
+    bool    _firstControlStatusReceived = false;
+    QTimer  _timerRevertAllowTakeover;
+    QTimer  _timerRequestOperatorControl;
+    bool    _sendControlRequestAllowed = true;
+
+signals:
+    void gcsControlStatusChanged();
+    void requestOperatorControlReceived(int sysIdRequestingControl, int allowTakeover, int requestTimeoutSecs);
+    void sendControlRequestAllowedChanged(bool sendControlRequestAllowed);
+
+/*===========================================================================*/
+/*                         STATUS TEXT HANDLER                               */
+/*===========================================================================*/
+private:
+    Q_PROPERTY(int unreadCriticalMessageCount READ unreadCriticalMessageCount NOTIFY unreadCriticalMessageCountChanged)
+    Q_PROPERTY(bool hasUnreadMessages READ hasUnreadMessages NOTIFY hasUnreadMessagesChanged)
+    Q_PROPERTY(QString formattedMessages READ formattedMessages NOTIFY formattedMessagesChanged)
+
+    // Q_PROPERTY(StatusTextHandler *statusTextHandler READ statusTextHandler NOTIFY statusTextHandlerChanged)
+
+public:
+    Q_INVOKABLE void clearMessages();
+    Q_INVOKABLE void markMessagesRead();
+
+    int unreadCriticalMessageCount() const;
+    bool hasUnreadMessages() const;
+    QString formattedMessages() const;
+
+    // StatusTextHandler* statusTextHandler() { return m_statusTextHandler; }
+
+signals:
+    void textMessageReceived(int sysid, int componentid, int severity, QString text, QString description);
+
+    void messagesReceivedChanged();
+    void messagesSentChanged();
+    void messagesLostChanged();
+    void unreadCriticalMessageCountChanged();
+    void hasUnreadMessagesChanged();
+    void formattedMessagesChanged();
+    void newFormattedMessage(QString formattedMessage);
+
+    // void statusTextHandlerChanged();
+
+private slots:
+    void _onStatusTextFromEvent(uint8_t compid, int severity, const QString &text, const QString &description);
+    void _textMessageReceived(MAV_COMPONENT componentid, MAV_SEVERITY severity, QString text, QString description);
+    void _errorMessageReceived(QString message);
+
+private:
+    void _createStatusTextHandler();
+
+    StatusTextHandler *m_statusTextHandler = nullptr;
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                        Image Protocol Manager                             */
+/*===========================================================================*/
+private:
+    Q_PROPERTY(uint flowImageIndex READ flowImageIndex NOTIFY flowImageIndexChanged)
+
+public:
+    uint32_t flowImageIndex() const;
+
+signals:
+    void flowImageIndexChanged();
+
+private:
+    void _createImageProtocolManager();
+    void _createSigningController();
+
+    ImageProtocolManager *_imageProtocolManager = nullptr;
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                         MAVLink Log Manager                               */
+/*===========================================================================*/
+private:
+    Q_PROPERTY(MAVLinkLogManager *mavlinkLogManager READ mavlinkLogManager NOTIFY mavlinkLogManagerChanged)
+
+public:
+    MAVLinkLogManager *mavlinkLogManager() const;
+
+signals:
+    void mavlinkLogManagerChanged();
+
+private:
+    void _createMAVLinkLogManager();
+
+    MAVLinkLogManager *_mavlinkLogManager = nullptr;
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                             Camera Manager                                */
+/*===========================================================================*/
+private:
+    Q_MOC_INCLUDE("QGCCameraManager.h")
+    Q_PROPERTY(QGCCameraManager *cameraManager READ cameraManager NOTIFY cameraManagerChanged)
+    Q_PROPERTY(QVariantList staticCameraList READ staticCameraList CONSTANT)
+
+public:
+    QGCCameraManager *cameraManager() { return _cameraManager; }
+    const QVariantList &staticCameraList() const;
+
+signals:
+    void cameraManagerChanged();
+
+private:
+    void _createCameraManager();
+
+    QGCCameraManager *_cameraManager = nullptr;
+
+/*---------------------------------------------------------------------------*/
+/*===========================================================================*/
+/*                          MAVLinkEventsManager                             */
+/*===========================================================================*/
+private:
+    Q_MOC_INCLUDE("HealthAndArmingCheckReport.h")
+    Q_PROPERTY(HealthAndArmingCheckReport* healthAndArmingCheckReport READ healthAndArmingCheckReport CONSTANT)
+
+public:
+    HealthAndArmingCheckReport* healthAndArmingCheckReport();
+
+    void setEventsMetadata(uint8_t compid, const QString& metadataJsonFileName);
+
+private:
+    void _createMAVLinkEventManager();
+    void _handleEventMessage(const mavlink_message_t& msg);
+    bool _healthAndArmingChecksSupported(uint8_t compid);
+
+    std::unique_ptr<MAVLinkEventManager> _eventManager;
 };

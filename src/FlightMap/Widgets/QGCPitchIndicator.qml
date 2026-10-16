@@ -1,22 +1,6 @@
-/****************************************************************************
- *
- *   (c) 2009-2016 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
-/**
- * @file
- *   @brief QGC Pitch Indicator
- *   @author Gus Grubba <mavlink@grubba.com>
- */
-
-import QtQuick 2.3
-import QGroundControl.ScreenTools 1.0
-import QGroundControl.Controls 1.0
+import QtQuick
+import QGroundControl
+import QGroundControl.Controls
 
 Rectangle {
     property real pitchAngle:       0
@@ -56,7 +40,7 @@ Rectangle {
                         anchors.horizontalCenterOffset: -(_longDash)
                         anchors.verticalCenter: parent.verticalCenter
                         smooth: true
-                        font.family: ScreenTools.demiboldFontFamily
+                        font.bold:   true
                         font.pointSize: _fontSize
                         text: _pitch
                         color: "white"
@@ -67,7 +51,7 @@ Rectangle {
                         anchors.horizontalCenterOffset: (_longDash)
                         anchors.verticalCenter: parent.verticalCenter
                         smooth: true
-                        font.family: ScreenTools.demiboldFontFamily
+                        font.bold:   true
                         font.pointSize: _fontSize
                         text: _pitch
                         color: "white"

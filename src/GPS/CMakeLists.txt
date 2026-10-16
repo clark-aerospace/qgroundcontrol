@@ -1,26 +1,18 @@
+# ============================================================================
+# GPS Module
+# GPS/GNSS positioning and RTK support. Core/ (QGCGPSCore) and NTRIP/HTTP/ (QGCNTRIPHttp) are libraries that build
+# without the application; the services in the other folders and the glue here that wires them to settings and
+# vehicles are application sources.
+# ============================================================================
 
+add_subdirectory(Core)
 
-add_library(gps
-	Drivers/src/ashtech.cpp
-	Drivers/src/gps_helper.cpp
-	Drivers/src/mtk.cpp
-	Drivers/src/rtcm.cpp
-	Drivers/src/sbf.cpp
-	Drivers/src/ubx.cpp
-	GPSManager.cc
-	GPSProvider.cc
-	RTCM/RTCMMavlink.cc
-)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE GPSManager.cc GPSManager.h GPSSettingsBindings.cc GPSSettingsBindings.h)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE QGCGPSCore GPSModule)
 
-target_link_libraries(gps
-	Qt5::Core
-	Qt5::Location
-	Qt5::SerialPort
-	Qt5::Svg
-	Qt5::TextToSpeech
-
-	qgc
-)
-
-target_include_directories(gps INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-
+add_subdirectory(Corrections)
+add_subdirectory(NTRIP)
+add_subdirectory(Positioning)
+add_subdirectory(Receiver)
+add_subdirectory(Qml)
